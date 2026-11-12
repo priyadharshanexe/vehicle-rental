@@ -1,85 +1,35 @@
 {% extends "rental/base.html" %}
-
 {% block content %}
-
-<style>
-body{
-background:#f6efe9;
-color:#2c2c2c;
-}
-</style>
-
-<div class="container mt-5">
-    <div class="card shadow p-4">
-
-        <h4>Book {{ vehicle.name }}</h4>
-
-        <p><strong>Price per day:</strong> ₹{{ vehicle.price_per_day }}</p>
-
-        <h5 class="mt-4">Booked Dates</h5>
-
-        <ul class="list-group mb-3">
-
-        {% for booking in booked_dates %}
-
-        <li class="list-group-item">
-        {{ booking.start_date }} → {{ booking.end_date }}
-        </li>
-
-        {% empty %}
-
-        <li class="list-group-item text-success">
-        No bookings yet. All dates available.
-        </li>
-
-        {% endfor %}
-
-        </ul>
-
-        <form method="POST">
-            {% csrf_token %}
-
-            {{ form.as_p }}
-
-            <p>
-                <strong>Total Price:</strong>
-                ₹<span id="total_price">0</span>
-            </p>
-
-            <button class="btn btn-dark">
-                <i class="bi bi-check-circle"></i> Request booking
-            </button>
-
-        </form>
-    </div>
-</div>
-
-
+<section class="form-panel">
+  <h1>Request {{ vehicle.name }}</h1>
+  <p>{{ vehicle.vehicle_type }} · {{ vehicle.fuel_type }}{% if vehicle.location %} · {{ vehicle.location }}{% endif %}</p>
+  <p><strong>₹{{ vehicle.price_per_day }}</strong> per calendar day. Pickup and return dates are both included.</p>
+  <p>The owner has up to 24 hours to review a request. Availability is checked again when you submit.</p>
+  {% if booked_dates %}
+  <details class="mb-3">
+    <summary>Unavailable dates</summary>
+    <ul>{% for booking in booked_dates %}<li>{{ booking.start_date }} to {{ booking.end_date }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <p aria-live="polite">Estimated total <strong id="total_price">Select dates</strong></p>
+    <button type="submit" class="btn btn-primary">Request booking</button>
+  </form>
+</section>
 <script>
-
-const pricePerDay = Number("{{ vehicle.price_per_day|stringformat:"s"|escapejs }}");
-
-const startDate = document.getElementById("start_date");
-const endDate = document.getElementById("end_date");
-const totalPrice = document.getElementById("total_price");
-
-function calculatePrice(){
-
-    const start = new Date(startDate.value);
-    const end = new Date(endDate.value);
-
-    if(startDate.value && endDate.value && end >= start){
-
-        const diffTime = end - start;
-        const diffDays = diffTime / (1000*60*60*24) + 1;
-
-        totalPrice.textContent = diffDays * pricePerDay;
-    }
+const price = Number("{{ vehicle.price_per_day|stringformat:'s'|escapejs }}");
+const start = document.getElementById("id_start_date");
+const end = document.getElementById("id_end_date");
+const total = document.getElementById("total_price");
+const currency = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
+function updateTotal() {
+  const duration = (end.valueAsNumber - start.valueAsNumber) / 86400000 + 1;
+  total.textContent = duration > 0 ? currency.format(duration * price) : "Select valid dates";
 }
-
-startDate.addEventListener("change", calculatePrice);
-endDate.addEventListener("change", calculatePrice);
-
+start.addEventListener("change", updateTotal);
+end.addEventListener("change", updateTotal);
+updateTotal();
 </script>
-
 {% endblock %}

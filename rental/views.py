@@ -1,3 +1,5 @@
+import logging
+from datetime import timedelta
 from django.shortcuts import render, redirect
 from .models import CustomUser
 from django.contrib import messages
@@ -7,6 +9,8 @@ from .models import Booking
 from decimal import Decimal
 
 from django import forms
+from django.core.paginator import Paginator
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 from reportlab.pdfgen import canvas
@@ -15,6 +19,9 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404
 from .models import Feedback
+
+logger = logging.getLogger(__name__)
+
 
 def rental_profile(user):
     profile, _ = CustomUser.objects.get_or_create(
@@ -29,54 +36,33 @@ def rental_profile(user):
 
 @login_required
 def dashboard(request):
-    user = rental_profile(request.user)
+    profile = rental_profile(request.user)
+    upcoming = active_bookings().filter(user=profile).select_related("vehicle").order_by("start_date").first()
+    return render(request, "rental/dashboard.html", {"upcoming": upcoming})
 
-    # get user's bookings
-    bookings = Booking.objects.filter(user=user)
 
-    recommended = []
-
-    if bookings.exists():
-
-        # most booked vehicle type
-        vehicle_type = bookings.values_list(
-            'vehicle__vehicle_type', flat=True
-        )[0]
-
-        recommended = Vehicle.objects.filter(vehicle_type=vehicle_type)[:3]
-
-    context = {
-        "recommended": recommended
-    }
-
-    return render(request, 'rental/dashboard.html', context)
-
-@login_required
 def vehicle_list(request):
-    query = request.GET.get('q')
-    vehicle_type = request.GET.get('type')
-    fuel_type = request.GET.get('fuel')
-    location = request.GET.get('location')
-
     vehicles = Vehicle.objects.filter(is_available=True, archived_at__isnull=True)
+    filters = {key: request.GET.get(key, "").strip() for key in
+               ("q", "type", "fuel", "location", "start_date", "end_date")}
+    for key, lookup in (("q", "name__icontains"), ("type", "vehicle_type"),
+                        ("fuel", "fuel_type__icontains"), ("location", "location__icontains")):
+        if filters[key]:
+            vehicles = vehicles.filter(**{lookup: filters[key]})
+    dates = BookingDatesForm(request.GET if filters["start_date"] or filters["end_date"] else None)
+    if dates.is_bound and dates.is_valid():
+        conflicting = active_bookings().filter(
+            start_date__lte=dates.cleaned_data["end_date"],
+            end_date__gte=dates.cleaned_data["start_date"],
+        )
+        vehicles = vehicles.exclude(pk__in=conflicting.values("vehicle_id"))
+    params = request.GET.copy()
+    params.pop("page", None)
+    return render(request, "rental/vehicle_list.html", {
+        "page": Paginator(vehicles.order_by("name", "pk"), 12).get_page(request.GET.get("page")),
+        "filters": filters, "dates": dates, "querystring": params.urlencode(),
+    })
 
-    if query:
-        vehicles = vehicles.filter(name__icontains=query)
-
-    if vehicle_type:
-        vehicles = vehicles.filter(vehicle_type=vehicle_type)
-
-    if fuel_type:
-        vehicles = vehicles.filter(fuel_type__icontains=fuel_type)
-
-    if location:
-        vehicles = vehicles.filter(location__icontains=location)
-
-    context = {
-        "vehicles": vehicles
-    }
-
-    return render(request, 'rental/vehicle_list.html', context)
 
 class BookingDatesForm(forms.Form):
     start_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
@@ -93,9 +79,16 @@ class BookingDatesForm(forms.Form):
         return data
 
 
-ACTIVE_BOOKING_STATUSES = (
-    Booking.Status.PENDING, Booking.Status.CONFIRMED, Booking.Status.IN_PROGRESS,
-)
+def active_bookings():
+    today = timezone.localdate()
+    return Booking.objects.filter(
+        models.Q(status=Booking.Status.IN_PROGRESS)
+        | models.Q(status=Booking.Status.CONFIRMED, end_date__gte=today)
+        | (
+            models.Q(status=Booking.Status.PENDING, start_date__gte=today)
+            & (models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+        )
+    )
 
 
 @transaction.atomic
@@ -103,7 +96,7 @@ def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
     # Lock in a consistent order so requests serialize per renter and vehicle.
     CustomUser.objects.select_for_update().get(pk=user_id)
     vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id)
-    active = Booking.objects.filter(status__in=ACTIVE_BOOKING_STATUSES)
+    active = active_bookings()
     if not vehicle.is_available or vehicle.archived_at:
         raise forms.ValidationError("This vehicle is no longer available.")
     if active.filter(user_id=user_id).count() >= 3:
@@ -118,7 +111,8 @@ def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
         raise forms.ValidationError("This rental cannot be priced for the selected dates.")
     return Booking.objects.create(
         user_id=user_id, vehicle=vehicle, start_date=start_date, end_date=end_date,
-        total_price=total_price,
+        total_price=total_price, quoted_daily_rate=vehicle.price_per_day,
+        expires_at=timezone.now() + timedelta(hours=24),
     )
 
 
@@ -126,7 +120,7 @@ def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
 def book_vehicle(request, vehicle_id):
     vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
     user = rental_profile(request.user)
-    form = BookingDatesForm(request.POST if request.method == "POST" else None)
+    form = BookingDatesForm(request.POST if request.method == "POST" else None, initial=request.GET)
     if request.method == "POST" and form.is_valid():
         try:
             reserve_vehicle(user.pk, vehicle.pk, **form.cleaned_data)
@@ -135,8 +129,8 @@ def book_vehicle(request, vehicle_id):
         else:
             return redirect("my_bookings")
 
-    booked_dates = Booking.objects.filter(
-        vehicle=vehicle, status__in=ACTIVE_BOOKING_STATUSES,
+    booked_dates = active_bookings().filter(
+        vehicle=vehicle,
         end_date__gte=timezone.localdate(),
     ).order_by("start_date")
     return render(request, "rental/book_vehicle.html", {
@@ -146,12 +140,11 @@ def book_vehicle(request, vehicle_id):
 
 @login_required
 def my_bookings(request):
-    bookings = Booking.objects.filter(user_id=rental_profile(request.user).pk)
+    bookings = Booking.objects.filter(user_id=rental_profile(request.user).pk).select_related("vehicle")
+    return render(request, "rental/my_bookings.html", {
+        "page": Paginator(bookings.order_by("-start_date", "-pk"), 15).get_page(request.GET.get("page")),
+    })
 
-    for booking in bookings:
-        booking.days = (booking.end_date - booking.start_date).days + 1
-
-    return render(request, 'rental/my_bookings.html', {'bookings': bookings})
 
 @transaction.atomic
 def change_booking_status(request, booking_id, destination, allowed, *, owner=False):
@@ -161,11 +154,14 @@ def change_booking_status(request, booking_id, destination, allowed, *, owner=Fa
     vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=reference.vehicle_id)
     booking = get_object_or_404(Booking.objects.select_for_update(), pk=booking_id)
     target = "owner_bookings" if owner else "my_bookings"
-    if booking.status not in allowed:
+    if booking.display_status not in allowed:
         messages.error(request, "This booking has changed. Check its current status.")
         return redirect(target)
 
     today = timezone.localdate()
+    if destination == Booking.Status.CANCELLED and booking.status == Booking.Status.CONFIRMED and today >= booking.start_date:
+        messages.error(request, "Confirmed bookings can be cancelled before the pickup date.")
+        return redirect(target)
     if destination == Booking.Status.CONFIRMED and booking.start_date < today:
         messages.error(request, "The pickup date has passed.")
         return redirect(target)
@@ -180,7 +176,13 @@ def change_booking_status(request, booking_id, destination, allowed, *, owner=Fa
     if destination == Booking.Status.RETURNED:
         booking.returned_at = timezone.now()
     booking.status = destination
-    booking.save(update_fields=["status", "picked_up_at", "returned_at"])
+    booking.status_changed_at = timezone.now()
+    booking.status_changed_by = request.user
+    booking.save(update_fields=[
+        "status", "picked_up_at", "returned_at", "status_changed_at", "status_changed_by",
+    ])
+    logger.info("booking_status_changed booking_id=%s actor_id=%s status=%s", booking.pk, request.user.pk, destination)
+    messages.success(request, f"Booking updated to {destination.lower()}.")
     return redirect(target)
 
 
@@ -268,56 +270,56 @@ def download_receipt(request, booking_id):
     booking = get_object_or_404(Booking, id=booking_id, user_id=user_id)
 
     response = HttpResponse(content_type='application/pdf')
-    response['Content-Disposition'] = 'attachment; filename="receipt.pdf"'
+    response['Content-Disposition'] = 'attachment; filename="booking-summary.pdf"'
 
     p = canvas.Canvas(response)
 
-    p.drawString(100, 800, "Vehicle Rental Receipt")
+    p.drawString(100, 800, "Vehicle Rental Booking Summary")
     p.drawString(100, 760, f"User: {booking.user.name}")
     p.drawString(100, 740, f"Vehicle: {booking.vehicle.name}")
     p.drawString(100, 720, f"Start Date: {booking.start_date}")
     p.drawString(100, 700, f"End Date: {booking.end_date}")
-    p.drawString(100, 680, f"Total Price: ₹{booking.total_price}")
-    p.drawString(100, 660, f"Status: {booking.status}")
+    p.drawString(100, 680, f"Total Price: INR {booking.total_price}")
+    p.drawString(100, 660, f"Status: {booking.display_status}")
 
     p.showPage()
     p.save()
 
     return response
 
+class VehicleForm(forms.ModelForm):
+    price_per_day = forms.DecimalField(max_digits=8, decimal_places=2,
+                                      validators=[MinValueValidator(Decimal("0.01"))])
+
+    class Meta:
+        model = Vehicle
+        fields = ("name", "vehicle_type", "fuel_type", "location", "price_per_day", "vehicle_image")
+
+    def clean_vehicle_image(self):
+        image = self.cleaned_data.get("vehicle_image")
+        if getattr(image, "image", None):
+            if image.size > 5 * 1024 * 1024 or max(image.image.size) > 4096:
+                raise forms.ValidationError("Use an image up to 5 MB and 4096 pixels per side.")
+            if image.image.format not in {"JPEG", "PNG", "WEBP"}:
+                raise forms.ValidationError("Choose a JPEG, PNG, or WebP image.")
+        return image
+
+
 @login_required
 def add_vehicle(request):
+    owner = rental_profile(request.user)
+    form = VehicleForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            CustomUser.objects.select_for_update().get(pk=owner.pk)
+            if Vehicle.objects.filter(owner=owner, archived_at__isnull=True).count() < 3:
+                vehicle = form.save(commit=False)
+                vehicle.owner = owner
+                vehicle.save()
+                return redirect("my_vehicles")
+        form.add_error(None, "You can list up to three vehicles at a time.")
+    return render(request, "rental/vehicle_form.html", {"form": form, "heading": "List a vehicle"})
 
-    if request.method == "POST":
-
-        name = request.POST['name']
-        vehicle_type = request.POST['vehicle_type']
-        fuel_type = request.POST['fuel_type']
-        location = request.POST['location'].strip()
-        price = request.POST['price']
-        image = request.FILES.get('image')
-
-        owner = rental_profile(request.user)
-
-        vehicle_count = Vehicle.objects.filter(owner=owner, archived_at__isnull=True).count()
-
-        if vehicle_count >= 3:
-            messages.error(request, "You can only add up to 3 vehicles.")
-            return redirect('my_vehicles')
-
-        Vehicle.objects.create(
-            owner=owner,
-            name=name,
-            vehicle_type=vehicle_type,
-            fuel_type=fuel_type,
-            location=location,
-            price_per_day=price,
-            vehicle_image=image
-        )
-
-        return redirect('vehicle_list')
-
-    return render(request, "rental/add_vehicle.html")
 
 @login_required
 def my_vehicles(request):
@@ -353,11 +355,7 @@ def toggle_vehicle(request, vehicle_id):
 def archive_vehicle(request, vehicle_id):
     owner = rental_profile(request.user)
     vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id, owner=owner)
-    open_bookings = Booking.objects.filter(vehicle=vehicle).filter(
-        models.Q(status=Booking.Status.IN_PROGRESS)
-        | models.Q(status__in=(Booking.Status.PENDING, Booking.Status.CONFIRMED),
-                   end_date__gte=timezone.localdate())
-    )
+    open_bookings = active_bookings().filter(vehicle=vehicle)
     if open_bookings.exists():
         messages.error(request, "Resolve open bookings before archiving this vehicle.")
     elif vehicle.archived_at is None:
@@ -369,26 +367,17 @@ def archive_vehicle(request, vehicle_id):
 
 
 @login_required
+@transaction.atomic
 def edit_vehicle(request, vehicle_id):
-    vehicle = get_object_or_404(
-    Vehicle,
-    id=vehicle_id,
-    owner_id=rental_profile(request.user).pk,
-    archived_at__isnull=True,
-    )
+    vehicles = Vehicle.objects.select_for_update() if request.method == "POST" else Vehicle.objects
+    vehicle = get_object_or_404(vehicles, pk=vehicle_id, owner=rental_profile(request.user),
+                               archived_at__isnull=True)
+    form = VehicleForm(request.POST or None, request.FILES or None, instance=vehicle)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        return redirect("my_vehicles")
+    return render(request, "rental/vehicle_form.html", {"form": form, "heading": "Edit vehicle"})
 
-    if request.method == "POST":
-
-        vehicle.name = request.POST['name']
-        vehicle.vehicle_type = request.POST['vehicle_type']
-        vehicle.fuel_type = request.POST['fuel_type']
-        vehicle.price_per_day = request.POST['price']
-
-        vehicle.save()
-
-        return redirect('my_vehicles')
-
-    return render(request, "rental/edit_vehicle.html", {"vehicle": vehicle})
 
 @login_required
 def owner_earnings(request):
@@ -430,9 +419,16 @@ def owner_bookings(request):
 
     owner = rental_profile(request.user)
 
-    bookings = Booking.objects.filter(vehicle__owner=owner)
-
-    return render(request, "rental/owner_bookings.html", {"bookings": bookings})
+    bookings = Booking.objects.filter(vehicle__owner=owner).select_related("vehicle", "user")
+    queue = request.GET.get("queue", "requests")
+    status = {"requests": Booking.Status.PENDING, "pickups": Booking.Status.CONFIRMED,
+              "returns": Booking.Status.IN_PROGRESS}.get(queue)
+    if status:
+        bookings = bookings.filter(pk__in=active_bookings().filter(status=status).values("pk"))
+    return render(request, "rental/owner_bookings.html", {
+        "page": Paginator(bookings.order_by("start_date", "pk"), 15).get_page(request.GET.get("page")),
+        "queue": queue,
+    })
 
 @require_POST
 @login_required

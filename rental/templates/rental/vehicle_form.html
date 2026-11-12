@@ -1,0 +1,13 @@
+{% extends "rental/base.html" %}
+{% block content %}
+<section class="form-panel">
+  <h1>{{ heading }}</h1>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <p class="text-muted">Photo formats: JPEG, PNG or WebP. Maximum 5 MB and 4096 pixels per side.</p>
+    <button class="btn btn-primary" type="submit">Save vehicle</button>
+    <a class="btn btn-link" href="{% url 'my_vehicles' %}">Back to fleet</a>
+  </form>
+</section>
+{% endblock %}

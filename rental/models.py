@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class CustomUser(models.Model):
@@ -42,6 +43,7 @@ class Booking(models.Model):
         PENDING = "Pending"
         CONFIRMED = "Confirmed"
         REJECTED = "Rejected"
+        EXPIRED = "Expired"
         CANCELLED = "Cancelled"
         IN_PROGRESS = "In progress"
         RETURNED = "Returned"
@@ -52,8 +54,33 @@ class Booking(models.Model):
     end_date = models.DateField()
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    quoted_daily_rate = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+    status_changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+    )
     picked_up_at = models.DateTimeField(null=True, blank=True)
     returned_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["vehicle", "status", "start_date"]),
+            models.Index(fields=["user", "status"]),
+        ]
+
+    @property
+    def display_status(self):
+        if self.status == self.Status.PENDING and (
+            self.start_date < timezone.localdate()
+            or (self.expires_at and self.expires_at <= timezone.now())
+        ):
+            return self.Status.EXPIRED
+        return self.status
+
+    @property
+    def days(self):
+        return (self.end_date - self.start_date).days + 1
 
     def __str__(self):
         return f"{self.user.name} - {self.vehicle.name}"

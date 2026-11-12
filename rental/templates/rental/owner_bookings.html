@@ -1,73 +1,34 @@
 {% extends "rental/base.html" %}
-
 {% block content %}
-
-<style>
-    body{
-background:#f6efe9;
-color:#2c2c2c;
-}
-</style>
-
-<div class="container mt-5">
-
-<h3>Booking Requests For My Vehicles</h3>
-
-<table class="table table-bordered">
-
-<tr>
-<th>User</th>
-<th>Vehicle</th>
-<th>From</th>
-<th>To</th>
-<th>Status</th>
-<th>Action</th>
-</tr>
-
-{% for booking in bookings %}
-
-<tr>
-
-<td>{{ booking.user.name }}</td>
-<td>{{ booking.vehicle.name }}</td>
-<td>{{ booking.start_date }}</td>
-<td>{{ booking.end_date }}</td>
-<td>{{ booking.status }}</td>
-
-<td>
-
-{% if booking.status == "Pending" %}
-
-<form action="/approve-booking/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-success btn-sm">
-Approve
-</button></form>
-
-<form action="/reject-booking/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-danger btn-sm">
-Reject
-</button></form>
-
-{% elif booking.status == "Confirmed" %}
-<form action="{% url 'pickup_vehicle' booking.pk %}" method="post">
-    {% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Record pickup</button>
-</form>
-{% elif booking.status == "In progress" %}
-<form action="{% url 'return_vehicle' booking.pk %}" method="post">
-    {% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Record return</button>
-</form>
-{% else %}
-
-<span class="text-muted">No action</span>
-
-{% endif %}
-
-</td>
-
-</tr>
-
-{% endfor %}
-
+<h1>Rental requests</h1>
+<nav class="d-flex flex-wrap gap-3 mb-3" aria-label="Owner booking queues">
+  <a href="?queue=requests"{% if queue == "requests" %} aria-current="page"{% endif %}>Requests</a>
+  <a href="?queue=pickups"{% if queue == "pickups" %} aria-current="page"{% endif %}>Pickups</a>
+  <a href="?queue=returns"{% if queue == "returns" %} aria-current="page"{% endif %}>Returns</a>
+  <a href="?queue=all"{% if queue == "all" %} aria-current="page"{% endif %}>All bookings</a>
+</nav>
+<div class="table-responsive">
+<table class="table align-middle">
+  <thead><tr><th>Vehicle</th><th>Renter</th><th>Rental dates</th><th>Status</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for booking in page %}
+  <tr>
+    <th scope="row">{{ booking.vehicle.name }}</th><td>{{ booking.user.name }}</td>
+    <td>{{ booking.start_date }} to {{ booking.end_date }}</td><td><span class="status">{{ booking.display_status }}</span></td>
+    <td class="actions">
+      {% if booking.display_status == "Pending" %}
+        <form method="post" action="{% url 'approve_booking' booking.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Approve</button></form>
+        <form method="post" action="{% url 'reject_booking' booking.pk %}">{% csrf_token %}<button class="btn btn-outline-dark btn-sm">Reject</button></form>
+      {% elif booking.display_status == "Confirmed" %}
+        <form method="post" action="{% url 'pickup_vehicle' booking.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Record pickup</button></form>
+      {% elif booking.display_status == "In progress" %}
+        <form method="post" action="{% url 'return_vehicle' booking.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Record return</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% empty %}<tr><td colspan="5">There are no bookings in this queue.</td></tr>{% endfor %}
+  </tbody>
 </table>
-
 </div>
-
+{% include "rental/pagination.html" with querystring=request.GET.urlencode %}
 {% endblock %}

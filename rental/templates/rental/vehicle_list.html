@@ -1,133 +1,40 @@
 {% extends "rental/base.html" %}
-
 {% block content %}
-<style>
-
-.vehicle-img{
-    height:200px;
-    object-fit:cover;
-}
-
-.vehicle-card{
-    border-radius:12px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.vehicle-card:hover{
-    transform: translateY(-4px);
-    box-shadow:0 10px 20px rgba(0,0,0,0.15);
-}
-
-.card{
-background:#fffaf6;
-border:none;
-border-radius:12px;
-box-shadow:0 6px 15px rgba(0,0,0,0.08);
-}
-
-.card-img-top{
-border-top-left-radius:12px;
-border-top-right-radius:12px;
-}
-body{
-background:#f6efe9;
-color:#2c2c2c;
-}
-.btn-primary{
-background:#8b5e3c;
-border:none;
-}
-
-.btn-primary:hover{
-background:#6b4226;
-}
-
-</style>
-
-<form method="GET" class="row g-2 mb-4">
-
-<div class="col-md-3">
-<input type="text" name="q" class="form-control" placeholder="Search vehicle...">
-</div>
-
-<div class="col-md-3">
-<input type="text" name="location" class="form-control" placeholder="Enter location">
-</div>
-
-<div class="col-md-2">
-<select name="type" class="form-control">
-<option value="">All Types</option>
-<option value="Bike">Bike</option>
-<option value="Car">Car</option>
-</select>
-</div>
-
-<div class="col-md-2">
-<input type="text" name="fuel" class="form-control" placeholder="Fuel type">
-</div>
-
-<div class="col-md-2">
-<button class="btn btn-primary w-100">
-<i class="bi bi-search"></i> Filter
-</button>
-</div>
-
+<h1>Find a vehicle</h1>
+<form method="get" class="filter-grid">
+  <label>Location <input name="location" value="{{ filters.location }}" placeholder="City or area"></label>
+  <label>Pickup date <input type="date" name="start_date" value="{{ filters.start_date }}"></label>
+  <label>Return date <input type="date" name="end_date" value="{{ filters.end_date }}"></label>
+  <label>Vehicle name <input name="q" value="{{ filters.q }}"></label>
+  <label>Type <select name="type">
+    <option value="">All types</option>
+    <option{% if filters.type == "Car" %} selected{% endif %}>Car</option>
+    <option{% if filters.type == "Bike" %} selected{% endif %}>Bike</option>
+  </select></label>
+  <label>Fuel <input name="fuel" value="{{ filters.fuel }}"></label>
+  <button class="btn btn-primary" type="submit">Search vehicles</button>
+  <a class="btn btn-link" href="{% url 'vehicle_list' %}">Clear filters</a>
 </form>
-
-<div class="row">
-
-{% for vehicle in vehicles %}
-<div class="col-md-4 mb-4">
-
-<div class="card shadow vehicle-card h-100">
-
+{% if dates.errors %}<div class="alert alert-warning" role="alert">{{ dates.errors }}</div>{% endif %}
+<p class="text-muted">{{ page.paginator.count }} vehicle{{ page.paginator.count|pluralize }}</p>
+<div class="listing-grid">
+{% for vehicle in page %}
+  <article class="listing">
     {% if vehicle.vehicle_image %}
-    <img src="{{ vehicle.vehicle_image.url }}" class="card-img-top vehicle-img">
+    <img class="listing-photo" src="{{ vehicle.vehicle_image.url }}" alt="{{ vehicle.name }}" loading="lazy">
     {% else %}
-    <img src="https://via.placeholder.com/400x200?text=No+Image" class="card-img-top vehicle-img">
+    <div class="listing-photo listing-placeholder">{{ vehicle.vehicle_type }}</div>
     {% endif %}
-
-    <div class="card-body d-flex flex-column">
-
-        <h5 class="card-title">{{ vehicle.name }}</h5>
-
-        <p class="text-muted mb-1">
-            <i class="bi bi-geo-alt text-danger"></i> {{ vehicle.location }}
-        </p>
-
-        <p class="text-muted small">
-            Owner: {{ vehicle.owner.name }}
-        </p>
-
-        <p class="mb-1">
-            <span class="badge bg-primary">{{ vehicle.vehicle_type }}</span>
-            <span class="badge bg-secondary">{{ vehicle.fuel_type }}</span>
-        </p>
-
-        <h5 class="text-success mt-2">₹{{ vehicle.price_per_day }} / day</h5>
-        <h6 class="mt-3">Reviews:</h6>
-
-        {% for f in vehicle.feedback_set.all %}
-        <div class="border rounded p-2 mb-2">⭐ {{ f.rating }}/5 <br>
-        <small>{{ f.comment }}</small>
-        </div>
-        {% empty %}
-        <small>No feedback yet</small>
-        {% endfor %}
-
-        <div class="mt-auto">
-            <a href="/book/{{ vehicle.id }}/" class="btn btn-primary w-100">
-                <i class="bi bi-calendar-plus"></i> Rent Now
-            </a>
-        </div>
-
+    <div class="listing-body">
+      <h2>{{ vehicle.name }}</h2>
+      <p>{{ vehicle.vehicle_type }} · {{ vehicle.fuel_type }}{% if vehicle.location %} · {{ vehicle.location }}{% endif %}</p>
+      <p><strong>₹{{ vehicle.price_per_day }}</strong> / day</p>
+      <a class="btn btn-outline-dark" href="{% url 'book_vehicle' vehicle.pk %}{% if dates.is_valid %}?start_date={{ filters.start_date|urlencode }}&amp;end_date={{ filters.end_date|urlencode }}{% endif %}">View {{ vehicle.name }}</a>
     </div>
-</div>
-</div>
+  </article>
 {% empty %}
-<p class="text-center">No vehicles available.</p>
+  <p>No vehicles match this search. Try different dates or clear the filters.</p>
 {% endfor %}
-
 </div>
-
+{% include "rental/pagination.html" %}
 {% endblock %}

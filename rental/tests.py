@@ -98,3 +98,19 @@ class BookingPermissionsTests(TestCase):
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.RETURNED)
         self.assertGreaterEqual(self.booking.returned_at, self.booking.picked_up_at)
+
+    def test_archive_preserves_booking_history_and_rejects_open_rentals(self):
+        self.sign_in(self.owner)
+        vehicle = self.booking.vehicle
+        url = reverse("archive_vehicle", args=[vehicle.pk])
+        self.assertRedirects(self.client.post(url), reverse("my_vehicles"))
+        vehicle.refresh_from_db()
+        self.assertIsNone(vehicle.archived_at)
+
+        self.booking.status = Booking.Status.RETURNED
+        self.booking.save(update_fields=["status"])
+        self.assertRedirects(self.client.post(url), reverse("my_vehicles"))
+        vehicle.refresh_from_db()
+        self.assertIsNotNone(vehicle.archived_at)
+        self.assertFalse(vehicle.is_available)
+        self.assertTrue(Booking.objects.filter(pk=self.booking.pk, vehicle=vehicle).exists())

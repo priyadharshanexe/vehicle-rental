@@ -58,7 +58,7 @@ def vehicle_list(request):
     fuel_type = request.GET.get('fuel')
     location = request.GET.get('location')
 
-    vehicles = Vehicle.objects.filter(is_available=True)
+    vehicles = Vehicle.objects.filter(is_available=True, archived_at__isnull=True)
 
     if query:
         vehicles = vehicles.filter(name__icontains=query)
@@ -104,7 +104,7 @@ def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
     CustomUser.objects.select_for_update().get(pk=user_id)
     vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id)
     active = Booking.objects.filter(status__in=ACTIVE_BOOKING_STATUSES)
-    if not vehicle.is_available:
+    if not vehicle.is_available or vehicle.archived_at:
         raise forms.ValidationError("This vehicle is no longer available.")
     if active.filter(user_id=user_id).count() >= 3:
         raise forms.ValidationError("You can only have 3 active bookings at a time.")
@@ -299,7 +299,7 @@ def add_vehicle(request):
 
         owner = rental_profile(request.user)
 
-        vehicle_count = Vehicle.objects.filter(owner=owner).count()
+        vehicle_count = Vehicle.objects.filter(owner=owner, archived_at__isnull=True).count()
 
         if vehicle_count >= 3:
             messages.error(request, "You can only add up to 3 vehicles.")
@@ -330,10 +330,13 @@ def my_vehicles(request):
 
 @require_POST
 @login_required
+@transaction.atomic
 def toggle_vehicle(request, vehicle_id):
 
     user_id = rental_profile(request.user).pk
-    vehicle = get_object_or_404(Vehicle, id=vehicle_id, owner_id=user_id)
+    vehicle = get_object_or_404(
+        Vehicle.objects.select_for_update(), id=vehicle_id, owner_id=user_id, archived_at__isnull=True,
+    )
 
     if vehicle.is_available:
         vehicle.is_available = False
@@ -346,22 +349,32 @@ def toggle_vehicle(request, vehicle_id):
 
 @require_POST
 @login_required
-def delete_vehicle(request, vehicle_id):
-    vehicle = get_object_or_404(
-    Vehicle,
-    id=vehicle_id,
-    owner_id=rental_profile(request.user).pk
+@transaction.atomic
+def archive_vehicle(request, vehicle_id):
+    owner = rental_profile(request.user)
+    vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id, owner=owner)
+    open_bookings = Booking.objects.filter(vehicle=vehicle).filter(
+        models.Q(status=Booking.Status.IN_PROGRESS)
+        | models.Q(status__in=(Booking.Status.PENDING, Booking.Status.CONFIRMED),
+                   end_date__gte=timezone.localdate())
     )
-    vehicle.delete()
+    if open_bookings.exists():
+        messages.error(request, "Resolve open bookings before archiving this vehicle.")
+    elif vehicle.archived_at is None:
+        vehicle.archived_at = timezone.now()
+        vehicle.is_available = False
+        vehicle.save(update_fields=["archived_at", "is_available"])
+        messages.success(request, "Vehicle archived. Its booking history is preserved.")
+    return redirect("my_vehicles")
 
-    return redirect('my_vehicles')
 
 @login_required
 def edit_vehicle(request, vehicle_id):
     vehicle = get_object_or_404(
     Vehicle,
     id=vehicle_id,
-    owner_id=rental_profile(request.user).pk
+    owner_id=rental_profile(request.user).pk,
+    archived_at__isnull=True,
     )
 
     if request.method == "POST":

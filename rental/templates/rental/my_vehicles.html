@@ -38,7 +38,9 @@ Add New Vehicle
 <td>₹{{ vehicle.price_per_day }}</td>
 
 <td>
-{% if vehicle.is_available %}
+{% if vehicle.archived_at %}
+<span class="badge bg-secondary">Archived</span>
+{% elif vehicle.is_available %}
 <span class="badge bg-success">Available</span>
 {% else %}
 <span class="badge bg-danger">Unavailable</span>
@@ -46,6 +48,7 @@ Add New Vehicle
 </td>
 <td>
 
+{% if not vehicle.archived_at %}
 <a href="/edit-vehicle/{{ vehicle.id }}/" class="btn btn-primary btn-sm">
 Edit
 </a>
@@ -58,9 +61,10 @@ Enable
 {% endif %}
 </button></form>
 
-<form action="/delete-vehicle/{{ vehicle.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-danger btn-sm">
-Delete
+<form action="{% url 'archive_vehicle' vehicle.pk %}" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-danger btn-sm">
+Archive
 </button></form>
+{% endif %}
 
 </td>
 

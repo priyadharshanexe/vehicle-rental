@@ -1,9 +1,11 @@
 import os
 from decimal import Decimal
+from pathlib import Path
 
 from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
@@ -42,9 +44,12 @@ class Command(BaseCommand):
             ("Hyundai i20", "Car", "Petrol", "1800.00"),
             ("Honda Activa", "Bike", "Petrol", "550.00"),
         ):
-            Vehicle.objects.get_or_create(
+            vehicle, _ = Vehicle.objects.get_or_create(
                 owner=profiles["owner"], name=name,
                 defaults={"vehicle_type": kind, "fuel_type": fuel, "location": "Madurai",
                           "price_per_day": Decimal(rate)},
             )
+            if not vehicle.vehicle_image:
+                image = Path(__file__).resolve().parents[2] / "demo_images" / f"demo-{kind.lower()}.webp"
+                vehicle.vehicle_image.save(image.name, ContentFile(image.read_bytes()))
         self.stdout.write(self.style.SUCCESS("Demo listings and accounts are ready."))

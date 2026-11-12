@@ -5,6 +5,7 @@ from . import api
 urlpatterns = [
     path("session/", api.session, name="api_session"),
     path("vehicles/", api.VehicleList.as_view(), name="api_vehicle_list"),
+    path("vehicles/<int:pk>/quote/", api.quote, name="api_quote"),
     path("vehicles/<int:pk>/", api.VehicleDetail.as_view(), name="api_vehicle_detail"),
     path("owner/bookings/", api.OwnerBookings.as_view(), name="api_owner_bookings"),
     path("owner/fleet/", api.fleet, name="api_fleet"),

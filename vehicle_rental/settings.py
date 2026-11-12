@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "allauth",
     "allauth.account",
+    "allauth.headless",
     "allauth.socialaccount",
     'django.contrib.admin',
     'django.contrib.auth',
@@ -133,6 +134,8 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+FRONTEND_BUILD = BASE_DIR / "frontend" / "dist"
+STATICFILES_DIRS = [("react", FRONTEND_BUILD)] if FRONTEND_BUILD.is_dir() else []
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -180,3 +183,5 @@ if GOOGLE_SIGN_IN_ENABLED:
             "OAUTH_PKCE_ENABLED": True,
         }
     }
+
+HEADLESS_CLIENTS = ("browser",)

@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
@@ -9,14 +10,15 @@ from django.views.decorators.cache import never_cache
 from rest_framework import generics, serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Booking, Feedback, MaintenanceBlock, Vehicle
+from .models import Booking, Feedback, Vehicle
 from .views import (
     BookingDatesForm, FeedbackForm, MaintenanceForm, ReportDatesForm, VehicleForm,
     active_bookings, archive_listing, completed_booking_values, create_listing,
-    rental_profile, reserve_vehicle, schedule_maintenance, search_vehicles, transition_booking,
+    rental_profile, rental_quote, reserve_vehicle, schedule_maintenance, search_vehicles, transition_booking,
 )
 
 
@@ -49,12 +51,18 @@ def session(request):
     user = request.user
     return Response({
         "csrf_token": get_token(request),
+        "google_enabled": settings.GOOGLE_SIGN_IN_ENABLED,
         "user": {"id": user.pk, "name": user.get_full_name() or user.username}
         if user.is_authenticated else None,
     })
 
 
+class CatalogPagination(PageNumberPagination):
+    page_size = 12
+
+
 class VehicleList(generics.ListAPIView):
+    pagination_class = CatalogPagination
     authentication_classes = [SessionAuthentication]
     permission_classes = [AllowAny]
     serializer_class = VehicleSerializer
@@ -64,7 +72,8 @@ class VehicleList(generics.ListAPIView):
         vehicles, _, dates = search_vehicles(request.query_params)
         if dates.is_bound and not dates.is_valid():
             return Response(dates.errors, status=400)
-        return Response(self.get_serializer(vehicles.order_by("name", "pk"), many=True).data)
+        rows = self.paginate_queryset(vehicles.order_by("name", "pk"))
+        return self.get_paginated_response(self.get_serializer(rows, many=True).data)
 
 
 @never_cache
@@ -252,3 +261,18 @@ def review(request, pk):
     Feedback.objects.create(booking=booking, vehicle_id=booking.vehicle_id,
                             user_id=booking.user_id, **form.cleaned_data)
     return Response(status=201)
+
+
+@api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([AllowAny])
+def quote(request, pk):
+    vehicle = get_object_or_404(VehicleList.queryset, pk=pk)
+    form = BookingDatesForm(request.query_params)
+    if not form.is_valid():
+        return Response(form.errors, status=400)
+    try:
+        days, total = rental_quote(vehicle, **form.cleaned_data)
+    except ValidationError as error:
+        return Response({"detail": error.messages[0]}, status=409)
+    return Response({"days": days, "total_price": str(total)})

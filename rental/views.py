@@ -14,7 +14,8 @@ from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 from reportlab.pdfgen import canvas
-from django.http import HttpResponse
+from django.conf import settings
+from django.http import FileResponse, Http404, HttpResponse
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404
@@ -101,6 +102,14 @@ def active_bookings():
     )
 
 
+def rental_quote(vehicle, start_date, end_date):
+    days = (end_date - start_date).days + 1
+    total_price = days * vehicle.price_per_day
+    if not 0 < total_price <= Decimal("99999999.99"):
+        raise forms.ValidationError("This rental cannot be priced for the selected dates.")
+    return days, total_price
+
+
 @transaction.atomic
 def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
     # Lock in a consistent order so requests serialize per renter and vehicle.
@@ -121,10 +130,7 @@ def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
         vehicle=vehicle, start_date__lte=end_date, end_date__gte=start_date,
     ).exists():
         raise forms.ValidationError("This vehicle has scheduled maintenance for those dates.")
-    days = (end_date - start_date).days + 1
-    total_price = days * vehicle.price_per_day
-    if not 0 < total_price <= Decimal("99999999.99"):
-        raise forms.ValidationError("This rental cannot be priced for the selected dates.")
+    _, total_price = rental_quote(vehicle, start_date, end_date)
     return Booking.objects.create(
         user_id=user_id, vehicle=vehicle, start_date=start_date, end_date=end_date,
         total_price=total_price, quoted_daily_rate=vehicle.price_per_day,
@@ -274,6 +280,11 @@ class VehicleForm(forms.ModelForm):
     class Meta:
         model = Vehicle
         fields = ("name", "vehicle_type", "fuel_type", "location", "price_per_day", "vehicle_image")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields["vehicle_image"].required = False
 
     def clean_vehicle_image(self):
         image = self.cleaned_data.get("vehicle_image")
@@ -445,6 +456,8 @@ def reject_booking(request, booking_id):
 
 
 def home(request):
+    if (settings.FRONTEND_BUILD / "index.html").is_file():
+        return redirect("/app/")
     return render(request, "rental/home.html")
 
 class FeedbackForm(forms.Form):
@@ -500,3 +513,12 @@ def schedule_maintenance(vehicle, start_date, end_date, reason):
     if active_bookings().filter(vehicle=vehicle, **overlap).exists() or blocks.filter(**overlap).exists():
         raise forms.ValidationError("Those dates overlap an existing rental or maintenance block.")
     return blocks.create(start_date=start_date, end_date=end_date, reason=reason)
+
+
+def react_app(request):
+    index = settings.FRONTEND_BUILD / "index.html"
+    if not index.is_file():
+        raise Http404("Build the frontend before opening the marketplace.")
+    response = FileResponse(index.open("rb"), content_type="text/html")
+    response["Cache-Control"] = "no-cache"
+    return response

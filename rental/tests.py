@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from .models import Booking, CustomUser, Vehicle
 
@@ -15,8 +16,8 @@ class BookingPermissionsTests(TestCase):
             owner=self.owner, name="Car", vehicle_type="Car", price_per_day=100
         )
         self.booking = Booking.objects.create(
-            user=self.renter, vehicle=vehicle, start_date=date(2026, 12, 1),
-            end_date=date(2026, 12, 1), total_price=100
+            user=self.renter, vehicle=vehicle, start_date=timezone.localdate(),
+            end_date=timezone.localdate(), total_price=100
         )
 
     def sign_in(self, user):
@@ -51,8 +52,6 @@ class BookingPermissionsTests(TestCase):
         self.assertEqual(self.client.get(url)["Content-Type"], "application/pdf")
 
     def test_booking_rejects_invalid_dates_and_unavailable_vehicle(self):
-        from django.utils import timezone
-
         self.sign_in(self.renter)
         vehicle = self.booking.vehicle
         url = reverse("book_vehicle", args=[vehicle.pk])
@@ -65,10 +64,6 @@ class BookingPermissionsTests(TestCase):
         self.assertEqual(Booking.objects.count(), 1)
 
     def test_booking_rejects_overlap_and_prices_one_day(self):
-        from datetime import timedelta
-
-        from django.utils import timezone
-
         self.sign_in(self.renter)
         today = timezone.localdate()
         self.booking.start_date = self.booking.end_date = today
@@ -80,3 +75,26 @@ class BookingPermissionsTests(TestCase):
         response = self.client.post(url, {"start_date": tomorrow, "end_date": tomorrow})
         self.assertRedirects(response, reverse("my_bookings"))
         self.assertEqual(Booking.objects.get(start_date=tomorrow).total_price, 100)
+
+    def test_only_owner_can_record_pickup_and_return_in_order(self):
+        pickup = reverse("pickup_vehicle", args=[self.booking.pk])
+        dropoff = reverse("return_vehicle", args=[self.booking.pk])
+        self.booking.status = Booking.Status.CONFIRMED
+        self.booking.save(update_fields=["status"])
+
+        self.sign_in(self.renter)
+        self.assertEqual(self.client.post(pickup).status_code, 404)
+        self.sign_in(self.owner)
+        self.client.post(dropoff)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
+
+        self.assertRedirects(self.client.post(pickup), reverse("owner_bookings"))
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.IN_PROGRESS)
+        self.assertIsNotNone(self.booking.picked_up_at)
+
+        self.assertRedirects(self.client.post(dropoff), reverse("owner_bookings"))
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.RETURNED)
+        self.assertGreaterEqual(self.booking.returned_at, self.booking.picked_up_at)

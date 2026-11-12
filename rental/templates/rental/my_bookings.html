@@ -30,10 +30,9 @@ color:#2c2c2c;
             <td>{{ booking.status }}</td>
             <td>
 
-                {% if booking.status == "Confirmed" %}
+                {% if booking.status == "Pending" or booking.status == "Confirmed" %}
                 <form action="/cancel-booking/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-danger btn-sm mt-2">Cancel</button></form>
 
-                <form action="/return-vehicle/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-primary btn-sm mt-2">Return</button></form>
 
                 {% endif %}
 

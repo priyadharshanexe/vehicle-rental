@@ -8,6 +8,7 @@ urlpatterns = [
     path('book/<int:vehicle_id>/', views.book_vehicle, name='book_vehicle'),
     path('my-bookings/', views.my_bookings, name='my_bookings'),
     path('cancel-booking/<int:booking_id>/', views.cancel_booking, name='cancel_booking'),
+    path('pickup-vehicle/<int:booking_id>/', views.pickup_vehicle, name='pickup_vehicle'),
     path('return-vehicle/<int:booking_id>/', views.return_vehicle, name='return_vehicle'),
     path("admin-dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path('download-receipt/<int:booking_id>/', views.download_receipt, name='download_receipt'),

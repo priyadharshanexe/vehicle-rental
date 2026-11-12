@@ -93,7 +93,9 @@ class BookingDatesForm(forms.Form):
         return data
 
 
-ACTIVE_BOOKING_STATUSES = ("Pending", "Confirmed")
+ACTIVE_BOOKING_STATUSES = (
+    Booking.Status.PENDING, Booking.Status.CONFIRMED, Booking.Status.IN_PROGRESS,
+)
 
 
 @transaction.atomic
@@ -151,29 +153,61 @@ def my_bookings(request):
 
     return render(request, 'rental/my_bookings.html', {'bookings': bookings})
 
+@transaction.atomic
+def change_booking_status(request, booking_id, destination, allowed, *, owner=False):
+    profile = rental_profile(request.user)
+    scope = {"vehicle__owner": profile} if owner else {"user": profile}
+    reference = get_object_or_404(Booking, pk=booking_id, **scope)
+    vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=reference.vehicle_id)
+    booking = get_object_or_404(Booking.objects.select_for_update(), pk=booking_id)
+    target = "owner_bookings" if owner else "my_bookings"
+    if booking.status not in allowed:
+        messages.error(request, "This booking has changed. Check its current status.")
+        return redirect(target)
+
+    today = timezone.localdate()
+    if destination == Booking.Status.CONFIRMED and booking.start_date < today:
+        messages.error(request, "The pickup date has passed.")
+        return redirect(target)
+    if destination == Booking.Status.IN_PROGRESS:
+        if not booking.start_date <= today <= booking.end_date:
+            messages.error(request, "Pickup must be within the booked dates.")
+            return redirect(target)
+        if Booking.objects.filter(vehicle=vehicle, status=Booking.Status.IN_PROGRESS).exists():
+            messages.error(request, "Record the previous rental's return before pickup.")
+            return redirect(target)
+        booking.picked_up_at = timezone.now()
+    if destination == Booking.Status.RETURNED:
+        booking.returned_at = timezone.now()
+    booking.status = destination
+    booking.save(update_fields=["status", "picked_up_at", "returned_at"])
+    return redirect(target)
+
+
 @require_POST
 @login_required
 def cancel_booking(request, booking_id):
-    user_id = rental_profile(request.user).pk
-    booking = get_object_or_404(Booking, id=booking_id, user_id=user_id, status="Confirmed")
+    return change_booking_status(
+        request, booking_id, Booking.Status.CANCELLED,
+        (Booking.Status.PENDING, Booking.Status.CONFIRMED),
+    )
 
-    booking.status = "Cancelled"
 
-    booking.save()
-
-    return redirect('my_bookings')
+@require_POST
+@login_required
+def pickup_vehicle(request, booking_id):
+    return change_booking_status(
+        request, booking_id, Booking.Status.IN_PROGRESS, (Booking.Status.CONFIRMED,), owner=True,
+    )
 
 
 @require_POST
 @login_required
 def return_vehicle(request, booking_id):
-    user_id = rental_profile(request.user).pk
-    booking = get_object_or_404(Booking, id=booking_id, user_id=user_id, status="Confirmed")
-    booking.status = "Returned"
+    return change_booking_status(
+        request, booking_id, Booking.Status.RETURNED, (Booking.Status.IN_PROGRESS,), owner=True,
+    )
 
-    booking.save()
-
-    return redirect('my_bookings')
 
 @staff_member_required
 def admin_dashboard(request):
@@ -390,24 +424,18 @@ def owner_bookings(request):
 @require_POST
 @login_required
 def approve_booking(request, booking_id):
-    user_id = rental_profile(request.user).pk
-    booking = get_object_or_404(Booking, id=booking_id, vehicle__owner_id=user_id, status="Pending")
+    return change_booking_status(
+        request, booking_id, Booking.Status.CONFIRMED, (Booking.Status.PENDING,), owner=True,
+    )
 
-    booking.status = "Confirmed"
-    booking.save()
-
-    return redirect('owner_bookings')
 
 @require_POST
 @login_required
 def reject_booking(request, booking_id):
-    user_id = rental_profile(request.user).pk
-    booking = get_object_or_404(Booking, id=booking_id, vehicle__owner_id=user_id, status="Pending")
+    return change_booking_status(
+        request, booking_id, Booking.Status.REJECTED, (Booking.Status.PENDING,), owner=True,
+    )
 
-    booking.status = "Rejected"
-    booking.save()
-
-    return redirect('owner_bookings')
 
 def home(request):
     return render(request, "rental/home.html")

@@ -46,6 +46,14 @@ Approve
 Reject
 </button></form>
 
+{% elif booking.status == "Confirmed" %}
+<form action="{% url 'pickup_vehicle' booking.pk %}" method="post">
+    {% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Record pickup</button>
+</form>
+{% elif booking.status == "In progress" %}
+<form action="{% url 'return_vehicle' booking.pk %}" method="post">
+    {% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">Record return</button>
+</form>
 {% else %}
 
 <span class="text-muted">No action</span>

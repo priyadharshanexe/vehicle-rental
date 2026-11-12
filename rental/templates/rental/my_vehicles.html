@@ -52,6 +52,7 @@ Add New Vehicle
 <a href="/edit-vehicle/{{ vehicle.id }}/" class="btn btn-primary btn-sm">
 Edit
 </a>
+<a href="{% url 'vehicle_maintenance' vehicle.pk %}" class="btn btn-link btn-sm">Maintenance</a>
 
 <form action="/toggle-vehicle/{{ vehicle.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-warning btn-sm">
 {% if vehicle.is_available %}

@@ -21,5 +21,6 @@ urlpatterns = [
     path('owner-bookings/', views.owner_bookings, name='owner_bookings'),
     path('approve-booking/<int:booking_id>/', views.approve_booking, name='approve_booking'),
     path('reject-booking/<int:booking_id>/', views.reject_booking, name='reject_booking'),
-    path('feedback/<int:vehicle_id>/', views.add_feedback, name='add_feedback'),
+    path('vehicles/<int:vehicle_id>/maintenance/', views.vehicle_maintenance, name='vehicle_maintenance'),
+    path('feedback/<int:booking_id>/', views.add_feedback, name='add_feedback'),
     ]

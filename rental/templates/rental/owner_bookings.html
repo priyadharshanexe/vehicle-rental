@@ -14,7 +14,7 @@
   {% for booking in page %}
   <tr>
     <th scope="row">{{ booking.vehicle.name }}</th><td>{{ booking.user.name }}</td>
-    <td>{{ booking.start_date }} to {{ booking.end_date }}</td><td><span class="status">{{ booking.display_status }}</span></td>
+    <td>{{ booking.start_date }} to {{ booking.end_date }}</td><td><span class="status">{{ booking.display_status }}</span>{% if booking.status == "In progress" and booking.end_date < today %}<br><strong>Overdue</strong>{% endif %}</td>
     <td class="actions">
       {% if booking.display_status == "Pending" %}
         <form method="post" action="{% url 'approve_booking' booking.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Approve</button></form>

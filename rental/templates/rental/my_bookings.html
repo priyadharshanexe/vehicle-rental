@@ -16,6 +16,9 @@
       </td>
       <td>
         <a href="{% url 'download_receipt' booking.pk %}">Booking summary</a>
+        {% if booking.display_status == "Returned" and not booking.review %}
+          <a href="{% url 'add_feedback' booking.pk %}">Leave a review</a>
+        {% endif %}
         {% if booking.display_status == "Confirmed" or booking.display_status == "Pending" %}
           <form action="{% url 'cancel_booking' booking.pk %}" method="post">
             {% csrf_token %}<button class="btn btn-link" type="submit">Cancel booking</button>

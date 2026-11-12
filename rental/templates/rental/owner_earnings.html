@@ -1,39 +1,13 @@
 {% extends "rental/base.html" %}
-
 {% block content %}
-<style>
-    body{
-background:#f6efe9;
-color:#2c2c2c;
-}
-</style>
-
-<div class="container mt-5">
-
-<h3>My Earnings</h3>
-
-<table class="table table-bordered">
-
-<tr>
-<th>Vehicle</th>
-<th>Bookings</th>
-<th>Revenue</th>
-</tr>
-
-{% for item in earnings_data %}
-
-<tr>
-<td>{{ item.vehicle }}</td>
-<td>{{ item.bookings }}</td>
-<td>₹{{ item.revenue }}</td>
-</tr>
-
-{% endfor %}
-
-</table>
-
-<h4>Total Earnings: ₹{{ total_earnings }}</h4>
-
-</div>
-
+<h1>Completed booking value</h1>
+<p>Totals are based on completed bookings and their saved quotes.</p>
+<form class="filter-grid" method="get">{{ form.as_p }}<button class="btn btn-primary">Filter</button></form>
+<p><strong>Total ₹{{ total }}</strong></p>
+<div class="table-responsive"><table class="table">
+<thead><tr><th>Vehicle</th><th>Completed bookings</th><th>Booking value</th></tr></thead>
+<tbody>{% for row in rows %}
+<tr><th scope="row">{{ row.vehicle__name }}</th><td>{{ row.bookings }}</td><td>₹{{ row.value }}</td></tr>
+{% empty %}<tr><td colspan="3">No completed bookings for this period.</td></tr>{% endfor %}</tbody>
+</table></div>
 {% endblock %}

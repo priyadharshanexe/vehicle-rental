@@ -114,3 +114,55 @@ class BookingPermissionsTests(TestCase):
         self.assertIsNotNone(vehicle.archived_at)
         self.assertFalse(vehicle.is_available)
         self.assertTrue(Booking.objects.filter(pk=self.booking.pk, vehicle=vehicle).exists())
+
+    def test_expired_request_cannot_be_approved_and_releases_vehicle(self):
+        self.booking.expires_at = timezone.now() - timedelta(seconds=1)
+        self.booking.save(update_fields=["expires_at"])
+        self.sign_in(self.owner)
+        self.client.post(reverse("approve_booking", args=[self.booking.pk]))
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.display_status, Booking.Status.EXPIRED)
+
+        self.sign_in(self.renter)
+        today = timezone.localdate()
+        response = self.client.post(reverse("book_vehicle", args=[self.booking.vehicle_id]), {
+            "start_date": today, "end_date": today,
+        })
+        self.assertRedirects(response, reverse("my_bookings"))
+        quote = Booking.objects.exclude(pk=self.booking.pk).get()
+        vehicle = self.booking.vehicle
+        vehicle.price_per_day = 200
+        vehicle.save(update_fields=["price_per_day"])
+        quote.refresh_from_db()
+        self.assertEqual(quote.quoted_daily_rate, 100)
+        self.assertEqual(quote.total_price, 100)
+
+    def test_maintenance_blocks_search_and_reservation(self):
+        self.booking.status = Booking.Status.REJECTED
+        self.booking.save(update_fields=["status"])
+        self.sign_in(self.owner)
+        today = timezone.localdate()
+        dates = {"start_date": today, "end_date": today}
+        vehicle_id = self.booking.vehicle_id
+        maintenance = reverse("vehicle_maintenance", args=[vehicle_id])
+        self.assertRedirects(self.client.post(maintenance, {**dates, "reason": "Service"}), maintenance)
+        self.sign_in(self.renter)
+        self.assertNotContains(self.client.get(reverse("vehicle_list"), dates), "View Car")
+        response = self.client.post(reverse("book_vehicle", args=[vehicle_id]), dates)
+        self.assertContains(response, "scheduled maintenance")
+
+    def test_only_renter_can_review_completed_booking_once(self):
+        from .models import Feedback
+
+        url = reverse("add_feedback", args=[self.booking.pk])
+        data = {"rating": 5, "comment": "Easy pickup"}
+        self.sign_in(self.renter)
+        self.assertEqual(self.client.post(url, data).status_code, 404)
+        self.booking.status = Booking.Status.RETURNED
+        self.booking.save(update_fields=["status"])
+        self.sign_in(self.owner)
+        self.assertEqual(self.client.post(url, data).status_code, 404)
+        self.sign_in(self.renter)
+        self.assertRedirects(self.client.post(url, data), reverse("my_bookings"))
+        self.assertRedirects(self.client.post(url, data), reverse("my_bookings"))
+        self.assertEqual(Feedback.objects.filter(booking=self.booking).count(), 1)

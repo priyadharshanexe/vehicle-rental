@@ -85,7 +85,23 @@ class Booking(models.Model):
     def __str__(self):
         return f"{self.user.name} - {self.vehicle.name}"
 
+class MaintenanceBlock(models.Model):
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="maintenance_blocks")
+    start_date = models.DateField()
+    end_date = models.DateField()
+    reason = models.CharField(max_length=120)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=models.Q(end_date__gte=models.F("start_date")),
+                                   name="maintenance_dates_in_order"),
+        ]
+
+
 class Feedback(models.Model):
+    booking = models.OneToOneField(
+        Booking, on_delete=models.CASCADE, null=True, blank=True, related_name="review",
+    )
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
     rating = models.IntegerField()

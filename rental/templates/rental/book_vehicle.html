@@ -5,10 +5,10 @@
   <p>{{ vehicle.vehicle_type }} · {{ vehicle.fuel_type }}{% if vehicle.location %} · {{ vehicle.location }}{% endif %}</p>
   <p><strong>₹{{ vehicle.price_per_day }}</strong> per calendar day. Pickup and return dates are both included.</p>
   <p>The owner has up to 24 hours to review a request. Availability is checked again when you submit.</p>
-  {% if booked_dates %}
+  {% if booked_dates or maintenance %}
   <details class="mb-3">
     <summary>Unavailable dates</summary>
-    <ul>{% for booking in booked_dates %}<li>{{ booking.start_date }} to {{ booking.end_date }}</li>{% endfor %}</ul>
+    <ul>{% for booking in booked_dates %}<li>{{ booking.start_date }} to {{ booking.end_date }}</li>{% endfor %}{% for block in maintenance %}<li>{{ block.start_date }} to {{ block.end_date }} · Maintenance</li>{% endfor %}</ul>
   </details>
   {% endif %}
   <form method="post">
@@ -18,6 +18,12 @@
     <button type="submit" class="btn btn-primary">Request booking</button>
   </form>
 </section>
+{% if reviews %}
+<section class="mt-4">
+  <h2>Verified rental reviews</h2>
+  {% for review in reviews %}<p><strong>{{ review.rating }}/5</strong> {{ review.comment }}</p>{% endfor %}
+</section>
+{% endif %}
 <script>
 const price = Number("{{ vehicle.price_per_day|stringformat:'s'|escapejs }}");
 const start = document.getElementById("id_start_date");

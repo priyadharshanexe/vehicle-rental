@@ -4,3 +4,4 @@ Pillow>=11,<13
 reportlab>=4,<5
 django-allauth[socialaccount]==65.22.0
 python-dotenv>=1,<2
+djangorestframework==3.18.3

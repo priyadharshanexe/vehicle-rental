@@ -56,3 +56,46 @@ class ReservationConcurrencyTests(TransactionTestCase):
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             return list(pool.map(reserve, requests))
+
+    @skipUnlessDBFeature("has_select_for_update")
+    def test_concurrent_listings_respect_owner_limit(self):
+        from io import BytesIO
+        from tempfile import TemporaryDirectory
+
+        from django.contrib.auth import get_user_model
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.test import Client, override_settings
+        from django.urls import reverse
+        from PIL import Image
+
+        account = get_user_model().objects.create_user(username="listing-owner")
+        owner = CustomUser.objects.create(account=account, name="Owner", email="owner@example.com")
+        for name in ("Existing car", "Existing bike"):
+            Vehicle.objects.create(owner=owner, name=name, vehicle_type="Car", price_per_day=100)
+        barrier = Barrier(2)
+        image = BytesIO()
+        Image.new("RGB", (20, 20), "white").save(image, format="PNG")
+
+        def publish(name):
+            close_old_connections()
+            try:
+                client = Client()
+                client.force_login(account)
+                barrier.wait(timeout=10)
+                response = client.post(reverse("add_vehicle"), {
+                    "name": name, "vehicle_type": "Car", "fuel_type": "Petrol",
+                    "price_per_day": "100.00", "location": "Madurai",
+                    "vehicle_image": SimpleUploadedFile("car.png", image.getvalue(), "image/png"),
+                }, secure=True)
+                return response.status_code, response.content
+            finally:
+                connections.close_all()
+
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(publish, ["New listing A", "New listing B"]))
+        self.assertCountEqual([status for status, _ in results], [200, 302])
+        self.assertIn(b"You can list up to three vehicles at a time.", next(
+            body for status, body in results if status == 200
+        ))
+        self.assertEqual(Vehicle.objects.filter(owner=owner, archived_at__isnull=True).count(), 3)

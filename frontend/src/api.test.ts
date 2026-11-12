@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { api, queryString } from './api'
+import { api, authRequest, queryString } from './api'
 
 describe('API requests', () => {
   it('preserves the session and reports Django field errors', async () => {
@@ -20,5 +20,24 @@ describe('API requests', () => {
     form.set('location', ' Madurai ')
     form.set('fuel', ' ')
     expect(queryString(form).toString()).toBe('location=Madurai')
+  })
+})
+
+
+describe('Account requests', () => {
+  it('accepts verification that completes without opening a session', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      JSON.stringify({ status: 401, meta: { is_authenticated: false } }), { status: 401 },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await expect(authRequest('auth/email/verify', { key: 'demo-key' }, 'csrf', { signedOutSuccess: true }))
+        .resolves.toBeUndefined()
+      expect(fetchMock).toHaveBeenCalledWith('/auth/browser/v1/auth/email/verify', expect.objectContaining({
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': 'csrf' },
+      }))
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

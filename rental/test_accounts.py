@@ -49,3 +49,31 @@ class AccountFlowTests(TestCase):
         self.assertTrue(EmailAddress.objects.get(email=email).verified)
         self.assertEqual(submit("login", data).status_code, 200)
         self.assertIsNotNone(client.get(reverse("api_session"), secure=True).json()["user"])
+
+    def test_headless_reset_replaces_unusable_legacy_password(self):
+        import re
+        from urllib.parse import unquote
+
+        from django.test import Client
+
+        user = get_user_model().objects.create_user(
+            username="legacy-reset", email="legacy-reset@example.com",
+        )
+        client = Client(enforce_csrf_checks=True)
+        token = client.get(reverse("api_session"), secure=True).json()["csrf_token"]
+        response = client.post(
+            "/auth/browser/v1/auth/password/request", {"email": user.email},
+            content_type="application/json", secure=True,
+            HTTP_X_CSRFTOKEN=token, HTTP_REFERER="https://testserver/",
+        )
+        self.assertEqual(response.status_code, 200)
+        key = unquote(re.search(r"/app/reset-password/([^\s]+)", mail.outbox[0].body).group(1))
+        password = "Fresh-Rental-Reset-246"
+        response = client.post(
+            "/auth/browser/v1/auth/password/reset", {"key": key, "password": password},
+            content_type="application/json", secure=True,
+            HTTP_X_CSRFTOKEN=token, HTTP_REFERER="https://testserver/",
+        )
+        self.assertIn(response.status_code, (200, 401), response.content)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password(password))

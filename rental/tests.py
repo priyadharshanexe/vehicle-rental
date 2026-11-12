@@ -49,3 +49,34 @@ class BookingPermissionsTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 404)
         self.sign_in(self.renter)
         self.assertEqual(self.client.get(url)["Content-Type"], "application/pdf")
+
+    def test_booking_rejects_invalid_dates_and_unavailable_vehicle(self):
+        from django.utils import timezone
+
+        self.sign_in(self.renter)
+        vehicle = self.booking.vehicle
+        url = reverse("book_vehicle", args=[vehicle.pk])
+        self.assertContains(self.client.post(url, {"start_date": "invalid"}), "Enter a valid date")
+        vehicle.is_available = False
+        vehicle.save(update_fields=["is_available"])
+        today = timezone.localdate().isoformat()
+        response = self.client.post(url, {"start_date": today, "end_date": today})
+        self.assertContains(response, "This vehicle is no longer available.")
+        self.assertEqual(Booking.objects.count(), 1)
+
+    def test_booking_rejects_overlap_and_prices_one_day(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        self.sign_in(self.renter)
+        today = timezone.localdate()
+        self.booking.start_date = self.booking.end_date = today
+        self.booking.save(update_fields=["start_date", "end_date"])
+        url = reverse("book_vehicle", args=[self.booking.vehicle_id])
+        response = self.client.post(url, {"start_date": today, "end_date": today})
+        self.assertContains(response, "Vehicle already booked for these dates.")
+        tomorrow = today + timedelta(days=1)
+        response = self.client.post(url, {"start_date": tomorrow, "end_date": tomorrow})
+        self.assertRedirects(response, reverse("my_bookings"))
+        self.assertEqual(Booking.objects.get(start_date=tomorrow).total_price, 100)

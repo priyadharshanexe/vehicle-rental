@@ -4,8 +4,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from .models import Vehicle
 from .models import Booking
-from datetime import date
-from django.db import models
+from decimal import Decimal
+
+from django import forms
+from django.db import models, transaction
+from django.utils import timezone
 from reportlab.pdfgen import canvas
 from django.http import HttpResponse
 from django.contrib.admin.views.decorators import staff_member_required
@@ -75,68 +78,69 @@ def vehicle_list(request):
 
     return render(request, 'rental/vehicle_list.html', context)
 
-@login_required
-def book_vehicle(request, vehicle_id):
-    vehicle = Vehicle.objects.get(id=vehicle_id)
-    user = rental_profile(request.user)
+class BookingDatesForm(forms.Form):
+    start_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
+    end_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
 
-    if request.method == 'POST':
-        start_date = request.POST['start_date']
-        end_date = request.POST['end_date']
+    def clean(self):
+        data = super().clean()
+        start = data.get("start_date")
+        end = data.get("end_date")
+        if start and start < timezone.localdate():
+            self.add_error("start_date", "Choose today or a later date.")
+        if start and end and end < start:
+            self.add_error("end_date", "End date cannot be before start date.")
+        return data
 
-        start_date = date.fromisoformat(start_date)
-        end_date = date.fromisoformat(end_date)
 
-        # check date validation
-        if end_date < start_date:
-            messages.error(request, "End date cannot be before start date.")
-            return redirect('vehicle_list')
+ACTIVE_BOOKING_STATUSES = ("Pending", "Confirmed")
 
-        # booking limit rule (max 3 active bookings)
-        active_bookings = Booking.objects.filter(
-            user=user,
-            status__in=["Pending", "Confirmed"]
-        ).count()
 
-        if active_bookings >= 3:
-            messages.error(request, "You can only have 3 active bookings at a time.")
-            return redirect('vehicle_list')
-
-        # check date conflict
-        conflict = Booking.objects.filter(
-            vehicle=vehicle,
-            start_date__lte=end_date,
-            end_date__gte=start_date,
-            status__in=["Pending", "Confirmed"]
-        ).exists()
-
-        if conflict:
-            messages.error(request, "Vehicle already booked for these dates.")
-            return redirect('vehicle_list')
-
-        days = (end_date - start_date).days + 1
-        total_price = days * vehicle.price_per_day
-
-        Booking.objects.create(
-            user=user,
-            vehicle=vehicle,
-            start_date=start_date,
-            end_date=end_date,
-            total_price=total_price,
-            status="Pending"
-        )
-
-        return redirect('my_bookings')
-
-    booked_dates = Booking.objects.filter(
-        vehicle=vehicle,
-        status__in=["Pending", "Confirmed"]
+@transaction.atomic
+def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
+    # Lock in a consistent order so requests serialize per renter and vehicle.
+    CustomUser.objects.select_for_update().get(pk=user_id)
+    vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id)
+    active = Booking.objects.filter(status__in=ACTIVE_BOOKING_STATUSES)
+    if not vehicle.is_available:
+        raise forms.ValidationError("This vehicle is no longer available.")
+    if active.filter(user_id=user_id).count() >= 3:
+        raise forms.ValidationError("You can only have 3 active bookings at a time.")
+    if active.filter(
+        vehicle=vehicle, start_date__lte=end_date, end_date__gte=start_date
+    ).exists():
+        raise forms.ValidationError("Vehicle already booked for these dates.")
+    days = (end_date - start_date).days + 1
+    total_price = days * vehicle.price_per_day
+    if not 0 < total_price <= Decimal("99999999.99"):
+        raise forms.ValidationError("This rental cannot be priced for the selected dates.")
+    return Booking.objects.create(
+        user_id=user_id, vehicle=vehicle, start_date=start_date, end_date=end_date,
+        total_price=total_price,
     )
 
-    return render(request, 'rental/book_vehicle.html', {
-        'vehicle': vehicle,
-        'booked_dates': booked_dates
+
+@login_required
+def book_vehicle(request, vehicle_id):
+    vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
+    user = rental_profile(request.user)
+    form = BookingDatesForm(request.POST if request.method == "POST" else None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            reserve_vehicle(user.pk, vehicle.pk, **form.cleaned_data)
+        except forms.ValidationError as error:
+            form.add_error(None, error)
+        else:
+            return redirect("my_bookings")
+
+    booked_dates = Booking.objects.filter(
+        vehicle=vehicle, status__in=ACTIVE_BOOKING_STATUSES,
+        end_date__gte=timezone.localdate(),
+    ).order_by("start_date")
+    return render(request, "rental/book_vehicle.html", {
+        "vehicle": vehicle, "booked_dates": booked_dates, "form": form,
     })
+
 
 @login_required
 def my_bookings(request):

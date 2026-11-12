@@ -39,15 +39,7 @@ color:#2c2c2c;
         <form method="POST">
             {% csrf_token %}
 
-            <div class="mb-3">
-                <label>Start Date</label>
-                <input type="date" name="start_date" id="start_date" class="form-control" required>
-            </div>
-
-            <div class="mb-3">
-                <label>End Date</label>
-                <input type="date" name="end_date" id="end_date" class="form-control" required>
-            </div>
+            {{ form.as_p }}
 
             <p>
                 <strong>Total Price:</strong>
@@ -55,7 +47,7 @@ color:#2c2c2c;
             </p>
 
             <button class="btn btn-dark">
-                <i class="bi bi-check-circle"></i> Confirm Booking
+                <i class="bi bi-check-circle"></i> Request booking
             </button>
 
         </form>
@@ -65,7 +57,7 @@ color:#2c2c2c;
 
 <script>
 
-const pricePerDay = {{ vehicle.price_per_day }};
+const pricePerDay = Number("{{ vehicle.price_per_day|stringformat:"s"|escapejs }}");
 
 const startDate = document.getElementById("start_date");
 const endDate = document.getElementById("end_date");

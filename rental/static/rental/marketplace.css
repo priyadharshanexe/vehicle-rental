@@ -46,3 +46,32 @@ form input:not([type=checkbox]):not([type=hidden]), form select, form textarea {
 .status { display: inline-block; background: #eee4d7; padding: .2rem .55rem; border-radius: .3rem; white-space: nowrap; }
 .actions form { display: inline-block; margin: .15rem; }
 .errorlist { color: #952a24; }
+
+@media (max-width: 575px) {
+  .mobile-records thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .mobile-records, .mobile-records tbody, .mobile-records tr {
+    display: block;
+  }
+  .mobile-records tr {
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: .5rem;
+    overflow: hidden;
+  }
+  .mobile-records td, .mobile-records th[scope="row"] {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  .mobile-records td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-weight: 600;
+  }
+  .nav-menu { right: 0; }
+}

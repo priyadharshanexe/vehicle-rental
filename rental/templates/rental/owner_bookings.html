@@ -8,14 +8,14 @@
   <a href="?queue=all"{% if queue == "all" %} aria-current="page"{% endif %}>All bookings</a>
 </nav>
 <div class="table-responsive">
-<table class="table align-middle">
+<table class="table align-middle mobile-records">
   <thead><tr><th>Vehicle</th><th>Renter</th><th>Rental dates</th><th>Status</th><th>Actions</th></tr></thead>
   <tbody>
   {% for booking in page %}
   <tr>
-    <th scope="row">{{ booking.vehicle.name }}</th><td>{{ booking.user.name }}</td>
-    <td>{{ booking.start_date }} to {{ booking.end_date }}</td><td><span class="status">{{ booking.display_status }}</span>{% if booking.status == "In progress" and booking.end_date < today %}<br><strong>Overdue</strong>{% endif %}</td>
-    <td class="actions">
+    <th scope="row">{{ booking.vehicle.name }}</th><td data-label="Renter">{{ booking.user.name }}</td>
+    <td data-label="Rental dates">{{ booking.start_date }} to {{ booking.end_date }}</td><td data-label="Status"><span class="status">{{ booking.display_status }}</span>{% if booking.status == "In progress" and booking.end_date < today %}<br><strong>Overdue</strong>{% endif %}</td>
+    <td data-label="Actions" class="actions">
       {% if booking.display_status == "Pending" %}
         <form method="post" action="{% url 'approve_booking' booking.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Approve</button></form>
         <form method="post" action="{% url 'reject_booking' booking.pk %}">{% csrf_token %}<button class="btn btn-outline-dark btn-sm">Reject</button></form>

@@ -2,19 +2,19 @@
 {% block content %}
 <h1>My bookings</h1>
 <div class="table-responsive">
-<table class="table align-middle">
+<table class="table align-middle mobile-records">
   <thead><tr><th>Vehicle</th><th>Rental dates</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
   <tbody>
   {% for booking in page %}
     <tr>
       <th scope="row">{{ booking.vehicle.name }}</th>
-      <td>{{ booking.start_date }} to {{ booking.end_date }}<br>{{ booking.days }} day{{ booking.days|pluralize }}</td>
-      <td>₹{{ booking.total_price }}{% if booking.quoted_daily_rate %}<br>₹{{ booking.quoted_daily_rate }} / day{% endif %}</td>
-      <td><span class="status">{{ booking.display_status }}</span>
+      <td data-label="Rental dates">{{ booking.start_date }} to {{ booking.end_date }}<br>{{ booking.days }} day{{ booking.days|pluralize }}</td>
+      <td data-label="Total">₹{{ booking.total_price }}{% if booking.quoted_daily_rate %}<br>₹{{ booking.quoted_daily_rate }} / day{% endif %}</td>
+      <td data-label="Status"><span class="status">{{ booking.display_status }}</span>
         {% if booking.picked_up_at %}<br>Picked up {{ booking.picked_up_at }}{% endif %}
         {% if booking.returned_at %}<br>Returned {{ booking.returned_at }}{% endif %}
       </td>
-      <td>
+      <td data-label="Actions">
         <a href="{% url 'download_receipt' booking.pk %}">Booking summary</a>
         {% if booking.display_status == "Returned" and not booking.review %}
           <a href="{% url 'add_feedback' booking.pk %}">Leave a review</a>

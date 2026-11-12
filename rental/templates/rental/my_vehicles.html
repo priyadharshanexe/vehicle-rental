@@ -12,27 +12,27 @@
 Add New Vehicle
 </a>
 
-<div class="table-responsive"><table class="table align-middle">
+<div class="table-responsive"><table class="table align-middle mobile-records">
 
-<tr>
+<thead><tr>
 <th>Name</th>
 <th>Type</th>
 <th>Fuel</th>
 <th>Price / Day</th>
 <th>Status</th>
 <th>Action</th>
-</tr>
+</tr></thead><tbody>
 
 {% for vehicle in vehicles %}
 
 <tr>
 
-<td>{{ vehicle.name }}</td>
-<td>{{ vehicle.vehicle_type }}</td>
-<td>{{ vehicle.fuel_type }}</td>
-<td>₹{{ vehicle.price_per_day }}</td>
+<td data-label="Vehicle">{{ vehicle.name }}</td>
+<td data-label="Type">{{ vehicle.vehicle_type }}</td>
+<td data-label="Fuel">{{ vehicle.fuel_type }}</td>
+<td data-label="Daily rate">₹{{ vehicle.price_per_day }}</td>
 
-<td>
+<td data-label="Status">
 {% if vehicle.archived_at %}
 <span class="badge bg-secondary">Archived</span>
 {% elif vehicle.is_available %}
@@ -41,7 +41,7 @@ Add New Vehicle
 <span class="badge bg-danger">Unavailable</span>
 {% endif %}
 </td>
-<td>
+<td data-label="Actions">
 
 {% if not vehicle.archived_at %}
 <a href="/edit-vehicle/{{ vehicle.id }}/" class="btn btn-primary btn-sm">
@@ -74,7 +74,7 @@ Archive
 
 {% endfor %}
 
-</table></div>
+</tbody></table></div>
 
 </div>
 

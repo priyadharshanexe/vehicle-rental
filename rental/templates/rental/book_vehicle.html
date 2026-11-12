@@ -1,0 +1,93 @@
+{% extends "rental/base.html" %}
+
+{% block content %}
+
+<style>
+body{
+background:#f6efe9;
+color:#2c2c2c;
+}
+</style>
+
+<div class="container mt-5">
+    <div class="card shadow p-4">
+
+        <h4>Book {{ vehicle.name }}</h4>
+
+        <p><strong>Price per day:</strong> ₹{{ vehicle.price_per_day }}</p>
+
+        <h5 class="mt-4">Booked Dates</h5>
+
+        <ul class="list-group mb-3">
+
+        {% for booking in booked_dates %}
+
+        <li class="list-group-item">
+        {{ booking.start_date }} → {{ booking.end_date }}
+        </li>
+
+        {% empty %}
+
+        <li class="list-group-item text-success">
+        No bookings yet. All dates available.
+        </li>
+
+        {% endfor %}
+
+        </ul>
+
+        <form method="POST">
+            {% csrf_token %}
+
+            <div class="mb-3">
+                <label>Start Date</label>
+                <input type="date" name="start_date" id="start_date" class="form-control" required>
+            </div>
+
+            <div class="mb-3">
+                <label>End Date</label>
+                <input type="date" name="end_date" id="end_date" class="form-control" required>
+            </div>
+
+            <p>
+                <strong>Total Price:</strong>
+                ₹<span id="total_price">0</span>
+            </p>
+
+            <button class="btn btn-dark">
+                <i class="bi bi-check-circle"></i> Confirm Booking
+            </button>
+
+        </form>
+    </div>
+</div>
+
+
+<script>
+
+const pricePerDay = {{ vehicle.price_per_day }};
+
+const startDate = document.getElementById("start_date");
+const endDate = document.getElementById("end_date");
+const totalPrice = document.getElementById("total_price");
+
+function calculatePrice(){
+
+    const start = new Date(startDate.value);
+    const end = new Date(endDate.value);
+
+    if(startDate.value && endDate.value && end >= start){
+
+        const diffTime = end - start;
+        const diffDays = diffTime / (1000*60*60*24) + 1;
+
+        totalPrice.textContent = diffDays * pricePerDay;
+    }
+}
+
+startDate.addEventListener("change", calculatePrice);
+endDate.addEventListener("change", calculatePrice);
+
+</script>
+
+{% endblock %}

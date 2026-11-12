@@ -1,0 +1,39 @@
+{% extends "rental/base.html" %}
+
+{% block content %}
+<style>
+    body{
+background:#f6efe9;
+color:#2c2c2c;
+}
+</style>
+
+<div class="container mt-5">
+
+<h3>My Earnings</h3>
+
+<table class="table table-bordered">
+
+<tr>
+<th>Vehicle</th>
+<th>Bookings</th>
+<th>Revenue</th>
+</tr>
+
+{% for item in earnings_data %}
+
+<tr>
+<td>{{ item.vehicle }}</td>
+<td>{{ item.bookings }}</td>
+<td>₹{{ item.revenue }}</td>
+</tr>
+
+{% endfor %}
+
+</table>
+
+<h4>Total Earnings: ₹{{ total_earnings }}</h4>
+
+</div>
+
+{% endblock %}

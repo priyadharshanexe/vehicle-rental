@@ -1,0 +1,81 @@
+{% extends "rental/base.html" %}
+
+{% block content %}
+
+<style>
+    body{
+background:#f6efe9;
+color:#2c2c2c;
+}
+</style>
+
+<div class="container mt-5">
+
+<h3>My Vehicles</h3>
+
+<a href="/add-vehicle/" class="btn btn-dark mb-3">
+Add New Vehicle
+</a>
+
+<table class="table table-bordered">
+
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>Fuel</th>
+<th>Price / Day</th>
+<th>Status</th>
+<th>Action</th>
+</tr>
+
+{% for vehicle in vehicles %}
+
+<tr>
+
+<td>{{ vehicle.name }}</td>
+<td>{{ vehicle.vehicle_type }}</td>
+<td>{{ vehicle.fuel_type }}</td>
+<td>₹{{ vehicle.price_per_day }}</td>
+
+<td>
+{% if vehicle.is_available %}
+<span class="badge bg-success">Available</span>
+{% else %}
+<span class="badge bg-danger">Unavailable</span>
+{% endif %}
+</td>
+<td>
+
+<a href="/edit-vehicle/{{ vehicle.id }}/" class="btn btn-primary btn-sm">
+Edit
+</a>
+
+<a href="/toggle-vehicle/{{ vehicle.id }}/" class="btn btn-warning btn-sm">
+{% if vehicle.is_available %}
+Disable
+{% else %}
+Enable
+{% endif %}
+</a>
+
+<a href="/delete-vehicle/{{ vehicle.id }}/" class="btn btn-danger btn-sm">
+Delete
+</a>
+
+</td>
+
+</tr>
+
+{% empty %}
+
+<tr>
+<td colspan="5">You have not added any vehicles.</td>
+</tr>
+
+{% endfor %}
+
+</table>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "rental/base.html" %}
+
+{% block content %}
+
+<style>
+    body{
+background:#f6efe9;
+color:#2c2c2c;
+}
+</style>
+
+<div class="container mt-5">
+
+<h3>Add Your Vehicle</h3>
+
+<form method="POST" enctype="multipart/form-data">
+{% csrf_token %}
+
+<div class="mb-3">
+<label>Vehicle Name</label>
+<input type="text" name="name" class="form-control">
+</div>
+
+<div class="mb-3">
+<label>Vehicle Type</label>
+<select name="vehicle_type" class="form-control">
+<option>Bike</option>
+<option>Car</option>
+</select>
+</div>
+
+<div class="mb-3">
+<label>Fuel Type</label>
+<input type="text" name="fuel_type" class="form-control">
+</div>
+
+<div class="mb-3">
+<label>Price Per Day</label>
+<input type="number" name="price" class="form-control">
+</div>
+
+<div class="mb-3">
+<label>Location</label>
+<input type="text" name="location" class="form-control">
+</div>
+
+<div class="mb-3">
+<label>Vehicle Image</label>
+<input type="file" name="image" class="form-control">
+</div>
+
+<button class="btn btn-dark">Add Vehicle</button>
+
+</form>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,65 @@
+{% extends "rental/base.html" %}
+
+{% block content %}
+
+<style>
+    body{
+background:#f6efe9;
+color:#2c2c2c;
+}
+</style>
+
+<div class="container mt-5">
+
+<h3>Booking Requests For My Vehicles</h3>
+
+<table class="table table-bordered">
+
+<tr>
+<th>User</th>
+<th>Vehicle</th>
+<th>From</th>
+<th>To</th>
+<th>Status</th>
+<th>Action</th>
+</tr>
+
+{% for booking in bookings %}
+
+<tr>
+
+<td>{{ booking.user.name }}</td>
+<td>{{ booking.vehicle.name }}</td>
+<td>{{ booking.start_date }}</td>
+<td>{{ booking.end_date }}</td>
+<td>{{ booking.status }}</td>
+
+<td>
+
+{% if booking.status == "Pending" %}
+
+<a href="/approve-booking/{{ booking.id }}/" class="btn btn-success btn-sm">
+Approve
+</a>
+
+<a href="/reject-booking/{{ booking.id }}/" class="btn btn-danger btn-sm">
+Reject
+</a>
+
+{% else %}
+
+<span class="text-muted">No action</span>
+
+{% endif %}
+
+</td>
+
+</tr>
+
+{% endfor %}
+
+</table>
+
+</div>
+
+{% endblock %}

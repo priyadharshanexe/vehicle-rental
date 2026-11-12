@@ -1,13 +1,14 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from .models import Booking, CustomUser, Vehicle
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class BookingPermissionsTests(TestCase):
     def setUp(self):
         self.owner = CustomUser.objects.create(email="owner@example.com", name="Owner")

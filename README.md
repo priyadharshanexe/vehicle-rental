@@ -18,6 +18,11 @@ A Django and MySQL marketplace where customers can browse cars and bikes and req
 
 Run the tests with `python manage.py test` using a local MySQL user with permission to create a test database.
 
+For a disposable local MySQL server, set `MYSQL_HOST=127.0.0.1`,
+`MYSQL_PORT=33316`, and a local `MYSQL_PASSWORD` in `.env`, then run
+`docker compose up -d db`. On first startup, the database initializes
+the application user and grants it access to Django's test database.
+
 ## License
 
 [MIT](LICENSE)

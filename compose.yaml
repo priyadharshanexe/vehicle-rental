@@ -1,0 +1,16 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: ${MYSQL_NAME:-vehicle_rental}
+      MYSQL_USER: ${MYSQL_USER:-vehicle_rental}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-33316}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init-test-db.sh:/docker-entrypoint-initdb.d/init-test-db.sh:ro
+
+volumes:
+  mysql-data:

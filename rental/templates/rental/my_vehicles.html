@@ -2,22 +2,17 @@
 
 {% block content %}
 
-<style>
-    body{
-background:#f6efe9;
-color:#2c2c2c;
-}
-</style>
+
 
 <div class="container mt-5">
 
-<h3>My Vehicles</h3>
+<h3>My fleet</h3>
 
 <a href="/add-vehicle/" class="btn btn-dark mb-3">
 Add New Vehicle
 </a>
 
-<table class="table table-bordered">
+<div class="table-responsive"><table class="table align-middle">
 
 <tr>
 <th>Name</th>
@@ -79,7 +74,7 @@ Archive
 
 {% endfor %}
 
-</table>
+</table></div>
 
 </div>
 

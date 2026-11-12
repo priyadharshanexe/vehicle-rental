@@ -38,13 +38,13 @@ color:#2c2c2c;
 
 {% if booking.status == "Pending" %}
 
-<a href="/approve-booking/{{ booking.id }}/" class="btn btn-success btn-sm">
+<form action="/approve-booking/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-success btn-sm">
 Approve
-</a>
+</button></form>
 
-<a href="/reject-booking/{{ booking.id }}/" class="btn btn-danger btn-sm">
+<form action="/reject-booking/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-danger btn-sm">
 Reject
-</a>
+</button></form>
 
 {% else %}
 

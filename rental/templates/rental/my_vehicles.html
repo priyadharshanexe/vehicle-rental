@@ -50,17 +50,17 @@ Add New Vehicle
 Edit
 </a>
 
-<a href="/toggle-vehicle/{{ vehicle.id }}/" class="btn btn-warning btn-sm">
+<form action="/toggle-vehicle/{{ vehicle.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-warning btn-sm">
 {% if vehicle.is_available %}
 Disable
 {% else %}
 Enable
 {% endif %}
-</a>
+</button></form>
 
-<a href="/delete-vehicle/{{ vehicle.id }}/" class="btn btn-danger btn-sm">
+<form action="/delete-vehicle/{{ vehicle.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-danger btn-sm">
 Delete
-</a>
+</button></form>
 
 </td>
 

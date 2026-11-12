@@ -7,6 +7,8 @@ from datetime import date
 from django.db import models
 from reportlab.pdfgen import canvas
 from django.http import HttpResponse
+from django.contrib.admin.views.decorators import staff_member_required
+from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404
 from .models import Feedback
 
@@ -51,6 +53,7 @@ def login(request):
     return render(request, 'rental/login.html')
 
 
+@require_POST
 def logout(request):
     request.session.flush()
     return redirect('login')
@@ -186,9 +189,13 @@ def my_bookings(request):
 
     return render(request, 'rental/my_bookings.html', {'bookings': bookings})
 
+@require_POST
 def cancel_booking(request, booking_id):
+    user_id = request.session.get('user_id')
+    if user_id is None:
+        return redirect('login')
 
-    booking = get_object_or_404(Booking, id=booking_id)
+    booking = get_object_or_404(Booking, id=booking_id, user_id=user_id, status="Confirmed")
 
     booking.status = "Cancelled"
 
@@ -197,15 +204,20 @@ def cancel_booking(request, booking_id):
     return redirect('my_bookings')
 
 
+@require_POST
 def return_vehicle(request, booking_id):
+    user_id = request.session.get('user_id')
+    if user_id is None:
+        return redirect('login')
 
-    booking = get_object_or_404(Booking, id=booking_id)
+    booking = get_object_or_404(Booking, id=booking_id, user_id=user_id, status="Confirmed")
     booking.status = "Returned"
 
     booking.save()
 
     return redirect('my_bookings')
 
+@staff_member_required
 def admin_dashboard(request):
 
     # basic statistics
@@ -259,8 +271,11 @@ def admin_dashboard(request):
     return render(request, "rental/admin_dashboard.html", context)
 
 def download_receipt(request, booking_id):
+    user_id = request.session.get('user_id')
+    if user_id is None:
+        return redirect('login')
 
-    booking = Booking.objects.get(id=booking_id)
+    booking = get_object_or_404(Booking, id=booking_id, user_id=user_id)
 
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = 'attachment; filename="receipt.pdf"'
@@ -327,9 +342,14 @@ def my_vehicles(request):
 
     return render(request, "rental/my_vehicles.html", {"vehicles": vehicles})
 
+@require_POST
 def toggle_vehicle(request, vehicle_id):
 
-    vehicle = Vehicle.objects.get(id=vehicle_id, owner_id=request.session['user_id'])
+    user_id = request.session.get('user_id')
+    if user_id is None:
+        return redirect('login')
+
+    vehicle = get_object_or_404(Vehicle, id=vehicle_id, owner_id=user_id)
 
     if vehicle.is_available:
         vehicle.is_available = False
@@ -340,6 +360,7 @@ def toggle_vehicle(request, vehicle_id):
 
     return redirect('my_vehicles')
 
+@require_POST
 def delete_vehicle(request, vehicle_id):
     if 'user_id' not in request.session:
         return redirect('login')
@@ -424,18 +445,26 @@ def owner_bookings(request):
 
     return render(request, "rental/owner_bookings.html", {"bookings": bookings})
 
+@require_POST
 def approve_booking(request, booking_id):
+    user_id = request.session.get('user_id')
+    if user_id is None:
+        return redirect('login')
 
-    booking = Booking.objects.get(id=booking_id)
+    booking = get_object_or_404(Booking, id=booking_id, vehicle__owner_id=user_id, status="Pending")
 
     booking.status = "Confirmed"
     booking.save()
 
     return redirect('owner_bookings')
 
+@require_POST
 def reject_booking(request, booking_id):
+    user_id = request.session.get('user_id')
+    if user_id is None:
+        return redirect('login')
 
-    booking = Booking.objects.get(id=booking_id)
+    booking = get_object_or_404(Booking, id=booking_id, vehicle__owner_id=user_id, status="Pending")
 
     booking.status = "Rejected"
     booking.save()

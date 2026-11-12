@@ -107,16 +107,18 @@ color:#2c2c2c;
     </ul>
 </div>
 
+{{ vehicle_names|json_script:"vehicle-names" }}
+{{ booking_counts|json_script:"booking-counts" }}
 <script>
 const ctx = document.getElementById('bookingChart');
 
 new Chart(ctx, {
     type: 'bar',
     data: {
-        labels: {{ vehicle_names|safe }},
+        labels: JSON.parse(document.getElementById("vehicle-names").textContent),
         datasets: [{
             label: 'Number of Bookings',
-            data: {{ booking_counts|safe }},
+            data: JSON.parse(document.getElementById("booking-counts").textContent),
             borderWidth: 1
         }]
     },

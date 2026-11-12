@@ -31,9 +31,9 @@ color:#2c2c2c;
             <td>
 
                 {% if booking.status == "Confirmed" %}
-                <a href="/cancel-booking/{{ booking.id }}/" class="btn btn-danger btn-sm mt-2">Cancel</a>
+                <form action="/cancel-booking/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-danger btn-sm mt-2">Cancel</button></form>
 
-                <a href="/return-vehicle/{{ booking.id }}/" class="btn btn-primary btn-sm mt-2">Return</a>
+                <form action="/return-vehicle/{{ booking.id }}/" method="post" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-primary btn-sm mt-2">Return</button></form>
 
                 {% endif %}
 

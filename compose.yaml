@@ -6,6 +6,15 @@ services:
       MYSQL_DATABASE: ${MYSQL_NAME:-vehicle_rental}
       MYSQL_USER: ${MYSQL_USER:-vehicle_rental}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$$MYSQL_PASSWORD" mysql --protocol=tcp -h 127.0.0.1
+          -u "$$MYSQL_USER" "$$MYSQL_DATABASE" -e 'SELECT 1'
+      interval: 3s
+      timeout: 3s
+      retries: 30
     ports:
       - "127.0.0.1:${MYSQL_PORT:-33316}:3306"
     volumes:

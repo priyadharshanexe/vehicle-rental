@@ -1,0 +1,34 @@
+name: Django tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  mysql:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SECRET_KEY: ci-only-signing-key
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 33316
+      MYSQL_NAME: vehicle_rental
+      MYSQL_USER: vehicle_rental
+      MYSQL_PASSWORD: ci-only-database-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-libmysqlclient-dev pkg-config
+          python -m pip install -r requirements.txt
+      - name: Start MySQL
+        run: docker compose up --wait db
+      - name: Check migrations and run tests
+        run: |
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test

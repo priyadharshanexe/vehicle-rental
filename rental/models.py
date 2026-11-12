@@ -64,6 +64,15 @@ class Booking(models.Model):
     returned_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        constraints = [
+            models.CheckConstraint(condition=models.Q(end_date__gte=models.F("start_date")),
+                                   name="booking_dates_in_order"),
+            models.CheckConstraint(
+                condition=models.Q(status__in=["Pending", "Confirmed", "Rejected", "Expired",
+                                               "Cancelled", "In progress", "Returned"]),
+                name="booking_status_valid",
+            ),
+        ]
         indexes = [
             models.Index(fields=["vehicle", "status", "start_date"]),
             models.Index(fields=["user", "status"]),

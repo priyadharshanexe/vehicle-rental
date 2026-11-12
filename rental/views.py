@@ -102,6 +102,8 @@ def reserve_vehicle(user_id, vehicle_id, start_date, end_date):
     CustomUser.objects.select_for_update().get(pk=user_id)
     vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id)
     active = active_bookings()
+    if end_date < start_date or start_date < timezone.localdate():
+        raise forms.ValidationError("Choose a valid pickup and return date.")
     if not vehicle.is_available or vehicle.archived_at:
         raise forms.ValidationError("This vehicle is no longer available.")
     if active.filter(user_id=user_id).count() >= 3:
@@ -278,7 +280,7 @@ class VehicleForm(forms.ModelForm):
 @login_required
 def add_vehicle(request):
     owner = rental_profile(request.user)
-    form = VehicleForm(request.POST or None, request.FILES or None)
+    form = VehicleForm(request.POST if request.method == "POST" else None, request.FILES)
     if request.method == "POST" and form.is_valid():
         with transaction.atomic():
             CustomUser.objects.select_for_update().get(pk=owner.pk)
@@ -315,7 +317,7 @@ def toggle_vehicle(request, vehicle_id):
     else:
         vehicle.is_available = True
 
-    vehicle.save()
+    vehicle.save(update_fields=["is_available"])
 
     return redirect('my_vehicles')
 
@@ -342,7 +344,7 @@ def edit_vehicle(request, vehicle_id):
     vehicles = Vehicle.objects.select_for_update() if request.method == "POST" else Vehicle.objects
     vehicle = get_object_or_404(vehicles, pk=vehicle_id, owner=rental_profile(request.user),
                                archived_at__isnull=True)
-    form = VehicleForm(request.POST or None, request.FILES or None, instance=vehicle)
+    form = VehicleForm(request.POST if request.method == "POST" else None, request.FILES, instance=vehicle)
     if request.method == "POST" and form.is_valid():
         form.save()
         return redirect("my_vehicles")
@@ -394,6 +396,7 @@ def owner_bookings(request):
     return render(request, "rental/owner_bookings.html", {
         "page": Paginator(bookings.order_by("start_date", "pk"), 15).get_page(request.GET.get("page")),
         "queue": queue, "today": timezone.localdate(),
+        "querystring": f"queue={queue}" if queue in {"requests", "pickups", "returns", "all"} else "",
     })
 
 @require_POST

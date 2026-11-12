@@ -1,8 +1,0 @@
-{% extends "rental/base.html" %}
-{% block content %}
-<section class="form-panel">
-  <h1>Review {{ booking.vehicle.name }}</h1>
-  <p>Your rating and comment will appear on this vehicle's listing.</p>
-  <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Publish review</button></form>
-</section>
-{% endblock %}

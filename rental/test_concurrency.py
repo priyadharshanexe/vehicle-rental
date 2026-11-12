@@ -82,7 +82,7 @@ class ReservationConcurrencyTests(TransactionTestCase):
                 client = Client()
                 client.force_login(account)
                 barrier.wait(timeout=10)
-                response = client.post(reverse("add_vehicle"), {
+                response = client.post(reverse("api_fleet"), {
                     "name": name, "vehicle_type": "Car", "fuel_type": "Petrol",
                     "price_per_day": "100.00", "location": "Madurai",
                     "vehicle_image": SimpleUploadedFile("car.png", image.getvalue(), "image/png"),
@@ -94,8 +94,8 @@ class ReservationConcurrencyTests(TransactionTestCase):
         with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 results = list(pool.map(publish, ["New listing A", "New listing B"]))
-        self.assertCountEqual([status for status, _ in results], [200, 302])
+        self.assertCountEqual([status for status, _ in results], [409, 201])
         self.assertIn(b"You can list up to three vehicles at a time.", next(
-            body for status, body in results if status == 200
+            body for status, body in results if status == 409
         ))
         self.assertEqual(Vehicle.objects.filter(owner=owner, archived_at__isnull=True).count(), 3)

@@ -20,4 +20,32 @@ class AccountFlowTests(TestCase):
         self.assertRedirects(response, reverse("account_reset_password_done"), fetch_redirect_response=False)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, [user.email])
-        self.assertIn("/accounts/password/reset/key/", mail.outbox[0].body)
+        self.assertIn("/app/reset-password/", mail.outbox[0].body)
+
+    def test_headless_signup_email_verification_and_sign_in(self):
+        import re
+        from urllib.parse import unquote
+
+        from allauth.account.models import EmailAddress
+        from django.test import Client
+
+        client = Client(enforce_csrf_checks=True)
+        csrf = client.get(reverse("api_session"), secure=True).json()["csrf_token"]
+        email = "new-renter@example.com"
+        password = "Fresh-Rental-Example-246"
+        data = {"email": email, "password": password}
+
+        def submit(path, body):
+            return client.post(
+                f"/auth/browser/v1/auth/{path}", body, content_type="application/json",
+                secure=True, HTTP_X_CSRFTOKEN=csrf, HTTP_REFERER="https://testserver/",
+            )
+
+        self.assertEqual(submit("signup", data).status_code, 401)
+        self.assertFalse(EmailAddress.objects.get(email=email).verified)
+        key = unquote(re.search(r"/app/verify-email/([^\s]+)", mail.outbox[0].body).group(1))
+        verified = submit("email/verify", {"key": key})
+        self.assertIn(verified.status_code, (200, 401), verified.content)
+        self.assertTrue(EmailAddress.objects.get(email=email).verified)
+        self.assertEqual(submit("login", data).status_code, 200)
+        self.assertIsNotNone(client.get(reverse("api_session"), secure=True).json()["user"])

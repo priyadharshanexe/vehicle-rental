@@ -30,6 +30,8 @@ export interface Booking extends DateRange {
   picked_up_at: string | null
   returned_at: string | null
   reviewed: boolean
+  overdue: boolean
+  status_changed_at: string | null
 }
 export interface Maintenance extends DateRange { id: number; reason: string }
 export interface BookingValue { vehicle_id: number; vehicle__name: string; bookings: number; value: string }
@@ -44,11 +46,20 @@ function errorMessage(payload: unknown, fallback: string): string {
   }).join(' ') || fallback
 }
 
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { ...options, credentials: 'same-origin' })
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null)
-    throw new Error(errorMessage(payload, `Request failed (${response.status}).`))
+    throw new ApiError(errorMessage(payload, `Request failed (${response.status}).`), response.status)
   }
   if (response.status === 204 || response.headers.get('Content-Length') === '0') return undefined as T
   return await response.json() as T
@@ -71,15 +82,28 @@ export function queryString(form: FormData) {
 
 interface AuthError { message?: string }
 
-export async function signIn(email: string, password: string, csrfToken: string) {
-  const response = await fetch('/auth/browser/v1/auth/login', {
+export async function authRequest(
+  path: string, data: Record<string, string>, csrfToken: string,
+  options: { verificationPending?: boolean; signedOutSuccess?: boolean } = {},
+) {
+  const response = await fetch(`/auth/browser/v1/${path}`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(data),
   })
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { errors?: AuthError[] } | null
+    const body = await response.json().catch(() => null) as {
+      errors?: AuthError[]
+      data?: { flows?: { id: string; is_pending?: boolean }[] }
+    } | null
+    const pending = body?.data?.flows?.some(flow => flow.id === 'verify_email' && flow.is_pending)
+    if (response.status === 401 && ((options.verificationPending && pending)
+      || (options.signedOutSuccess && body !== null && !body.errors?.length))) return
     throw new Error(body?.errors?.map(error => error.message).filter(Boolean).join(' ')
-      || (response.status === 401 ? 'Complete email verification before signing in.' : 'Sign-in failed. Please try again.'))
+      || (pending ? 'Check your inbox and verify your email before signing in.' : 'The account request could not be completed.'))
   }
+}
+
+export function signIn(email: string, password: string, csrfToken: string) {
+  return authRequest('auth/login', { email, password }, csrfToken)
 }

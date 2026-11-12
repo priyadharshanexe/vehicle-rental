@@ -1,7 +1,0 @@
-{% if page.has_other_pages %}
-<nav class="d-flex align-items-center gap-3 mt-4" aria-label="Pagination">
-  {% if page.has_previous %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
-  <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-  {% if page.has_next %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
-</nav>
-{% endif %}

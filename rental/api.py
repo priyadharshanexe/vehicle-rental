@@ -6,6 +6,7 @@ from django.db import transaction
 from django.http import Http404
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from rest_framework import generics, serializers, status
 from rest_framework.authentication import SessionAuthentication
@@ -33,6 +34,10 @@ class BookingSerializer(serializers.ModelSerializer):
     status = serializers.CharField(source="display_status")
     renter_name = serializers.CharField(source="user.name")
     reviewed = serializers.SerializerMethodField()
+    overdue = serializers.SerializerMethodField()
+
+    def get_overdue(self, booking):
+        return booking.status == Booking.Status.IN_PROGRESS and booking.end_date < timezone.localdate()
 
     def get_reviewed(self, booking):
         return hasattr(booking, "review")
@@ -40,7 +45,7 @@ class BookingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = ("id", "vehicle", "start_date", "end_date", "status", "total_price", "quoted_daily_rate",
-                  "renter_name", "picked_up_at", "returned_at", "reviewed")
+                  "renter_name", "picked_up_at", "returned_at", "reviewed", "overdue", "status_changed_at")
 
 
 @never_cache

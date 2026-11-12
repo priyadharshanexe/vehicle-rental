@@ -77,3 +77,8 @@ input:not([type=hidden]), select, textarea { min-width: 0; width: 100%; color: v
 }
 
 .cards + nav { margin-top: 1.25rem; }
+
+.featured { margin-top: 2.5rem; }
+.featured .section-head { margin-bottom: 1rem; }
+.timeline { grid-column: 1 / -1; }
+.overdue { display: block; color: #8d241b; }

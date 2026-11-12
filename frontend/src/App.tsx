@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import AccountScreen from './AccountScreen'
 import heroImage from './assets/marketplace-hero.webp'
 import type { FormEvent, ReactNode } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, dateLabel, money, queryString, signIn } from './api'
+import { api, ApiError, dateLabel, money, queryString, signIn } from './api'
 import type { Booking, BookingValue, FleetVehicle, Maintenance, Session, Vehicle, VehicleDetail } from './api'
 
 const useSession = () => useQuery({ queryKey: ['session'], queryFn: () => api<Session>('session/') })
@@ -23,6 +24,11 @@ function useWrite() {
       return api<unknown>(path, { method, headers, body: body instanceof FormData ? body : body && JSON.stringify(body) })
     },
     onSuccess: () => cache.invalidateQueries({ predicate: query => query.queryKey[0] !== 'session' }),
+    onError: error => {
+      if (error instanceof ApiError && error.status === 403) {
+        void cache.invalidateQueries({ queryKey: ['session'] })
+      }
+    },
   })
 }
 
@@ -46,10 +52,11 @@ function Layout({ children }: { children: ReactNode }) {
       <div className="nav-links">
         <Link to="/vehicles">Browse</Link>
         {session.data?.user ? <>
+          <Link to="/dashboard">Dashboard</Link>
           <Link to="/bookings">My bookings</Link>
-          <a href="/accounts/email/">Account</a>
+          <Link to="/account">Account</Link>
           <details><summary>Owner workspace</summary><div className="menu">
-            <Link to="/owner/requests">Rental requests</Link><Link to="/owner/fleet">Fleet</Link>
+            <Link to="/owner">Owner dashboard</Link><Link to="/owner/requests">Rental requests</Link><Link to="/owner/fleet">Fleet</Link>
             <Link to="/owner/value">Booking value</Link>
           </div></details>
           <form method="post" action="/accounts/logout/">
@@ -74,7 +81,7 @@ function SignIn() {
     onSuccess: () => cache.invalidateQueries({ queryKey: ['session'] }),
   })
   const desired = params.get('next')
-  const safe = desired?.startsWith('/') && !desired.startsWith('//') && !desired.includes('\\') ? desired : '/bookings'
+  const safe = desired?.startsWith('/') && !desired.startsWith('//') && !desired.includes('\\') ? desired : '/dashboard'
   const next = `/app${safe}`
   if (session.isPending) return <Busy />
   if (session.isError) return <Notice error={session.error} />
@@ -90,8 +97,8 @@ function SignIn() {
       <input type="hidden" name="next" value={next} />
       <button className="secondary">Continue with Google</button>
     </form>}
-    <p><a href="/accounts/password/reset/">Forgot your password?</a></p>
-    <p><a href={`/accounts/signup/?next=${encodeURIComponent(next)}`}>Create an account</a></p>
+    <p><Link to="/reset-password">Forgot your password?</Link></p>
+    <p><Link to={`/register?next=${encodeURIComponent(safe)}`}>Create an account</Link></p>
   </section>
 }
 
@@ -111,6 +118,9 @@ function Search({ params, compact = false }: { params?: URLSearchParams; compact
 }
 
 function Home() {
+  const vehicles = useQuery({
+    queryKey: ['vehicles', ''], queryFn: () => api<{ results: Vehicle[] }>('vehicles/'),
+  })
   return <><section className="hero">
     <div className="hero-intro">
       <div><h1>Find a car or bike for your next trip.</h1>
@@ -118,6 +128,13 @@ function Home() {
       <div className="hero-art"><img src={heroImage} alt="A compact car and scooter parked along a countryside road" /></div>
     </div>
     <Search compact />
+  </section>
+  <section className="featured">
+    <div className="section-head"><h2>Explore the fleet</h2><div className="actions">
+      <Link to="/vehicles?type=Car">Browse cars</Link><Link to="/vehicles?type=Bike">Browse bikes</Link>
+    </div></div>
+    {vehicles.isPending && <Busy />}<Notice error={vehicles.error} />
+    <div className="cards">{vehicles.data?.results.slice(0, 3).map(vehicle => <Listing key={vehicle.id} vehicle={vehicle} />)}</div>
   </section><section className="owner-callout"><h2>Have a vehicle to rent?</h2><p>Manage listings, requests, pickups, and returns in your owner workspace.</p><Link className="button secondary" to="/owner/fleet">Open owner workspace</Link></section></>
 }
 
@@ -125,6 +142,16 @@ function Photo({ vehicle }: { vehicle: Vehicle }) {
   return vehicle.vehicle_image
     ? <img className="photo" src={vehicle.vehicle_image} alt={vehicle.name} loading="lazy" />
     : <div className="photo placeholder">{vehicle.vehicle_type}</div>
+}
+
+function Listing({ vehicle, params = '' }: { vehicle: Vehicle; params?: string }) {
+  return <article className="listing">
+    <Photo vehicle={vehicle} /><div className="listing-body">
+      <h2>{vehicle.name}</h2><p>{vehicle.vehicle_type} · {vehicle.fuel_type} · {vehicle.location ?? 'Location on request'}</p>
+      <p><strong>{money(vehicle.price_per_day)}</strong> / day</p>
+      <Link className="button secondary" to={`/vehicles/${vehicle.id}${params ? `?${params}` : ''}`}>View {vehicle.name}</Link>
+    </div>
+  </article>
 }
 
 function Catalog() {
@@ -139,13 +166,7 @@ function Catalog() {
   return <><h1>Browse vehicles</h1><Search params={params} />
     {query.isPending && <Busy />}<Notice error={query.error} />
     {query.data && <p>{query.data.count} matching vehicles</p>}
-    <div className="cards">{query.data?.results.map(vehicle => <article className="listing" key={vehicle.id}>
-      <Photo vehicle={vehicle} /><div className="listing-body">
-        <h2>{vehicle.name}</h2><p>{vehicle.vehicle_type} · {vehicle.fuel_type} · {vehicle.location ?? 'Location on request'}</p>
-        <p><strong>{money(vehicle.price_per_day)}</strong> / day</p>
-        <Link className="button secondary" to={`/vehicles/${vehicle.id}?${params}`}>View {vehicle.name}</Link>
-      </div>
-    </article>)}</div>
+    <div className="cards">{query.data?.results.map(vehicle => <Listing key={vehicle.id} vehicle={vehicle} params={params.toString()} />)}</div>
     {query.data?.count === 0 && <p>No matching vehicles. <Link to="/vehicles">Clear filters</Link>.</p>}
     {(query.data?.previous || query.data?.next) && <nav className="actions" aria-label="Catalog pages">
       {query.data.previous && <button className="secondary" onClick={() => goToPage(page - 1)}>Previous</button>}
@@ -197,12 +218,14 @@ const ownerActions: Partial<Record<Booking['status'], [string, string][]>> = {
   'In progress': [['return', 'Record return']],
 }
 function Bookings({ owner = false }: { owner?: boolean }) {
+  const { id } = useParams()
   const [queue, setQueue] = useState('all')
   const [review, setReview] = useState<number | null>(null)
   const query = useQuery({ queryKey: [owner ? 'owner-bookings' : 'bookings'], queryFn: () => api<Booking[]>(owner ? 'owner/bookings/' : 'bookings/') })
   const write = useWrite()
-  const rows = query.data?.filter(row => queue === 'all' || row.status === queue)
-  return <><h1>{owner ? 'Rental requests' : 'My bookings'}</h1>
+  const rows = query.data?.filter(row => (queue === 'all' || row.status === queue) && (!id || String(row.id) === id))
+  return <><h1>{owner ? 'Rental requests' : id ? 'Booking details' : 'My bookings'}</h1>
+    {id && <Link to="/bookings">Back to my bookings</Link>}
     {owner && <label className="queue">Queue<select value={queue} onChange={event => setQueue(event.target.value)}>
       <option value="all">All bookings</option><option value="Pending">Requests</option>
       <option value="Confirmed">Pickups</option><option value="In progress">Returns</option>
@@ -210,8 +233,8 @@ function Bookings({ owner = false }: { owner?: boolean }) {
     {query.isPending && <Busy />}<Notice error={query.error} /><Notice error={write.error} />
     {rows?.length === 0 && <p>No bookings in this view.</p>}
     <div className="records">{rows?.map(row => <article className="record" key={row.id}>
-      <div><h2>{row.vehicle.name}</h2><p>{dateLabel(row.start_date)} to {dateLabel(row.end_date)}</p>{owner && <p>Renter: {row.renter_name}</p>}</div>
-      <div><span className="status">{row.status}</span><p>{money(row.total_price)}</p>
+      <div><h2>{!owner && !id ? <Link to={`/bookings/${row.id}`}>{row.vehicle.name}</Link> : row.vehicle.name}</h2><p>{dateLabel(row.start_date)} to {dateLabel(row.end_date)}</p>{owner && <p>Renter: {row.renter_name}</p>}</div>
+      <div><span className="status">{row.status}</span>{row.overdue && <strong className="overdue">Overdue return</strong>}<p>{money(row.total_price)}</p>
         {row.picked_up_at && <p>Picked up {dateLabel(row.picked_up_at)}</p>}
         {row.returned_at && <p>Returned {dateLabel(row.returned_at)}</p>}
       </div>
@@ -222,6 +245,12 @@ function Bookings({ owner = false }: { owner?: boolean }) {
           {row.status === 'Returned' && !row.reviewed && <button className="secondary" onClick={() => setReview(row.id)}>Leave a review</button>}
         </>}
       </div>
+      {id && <section className="timeline"><h3>Booking timeline</h3><ol>
+        {row.status_changed_at && <li>Last status update · {dateLabel(row.status_changed_at)}</li>}
+        {row.picked_up_at && <li>Picked up · {dateLabel(row.picked_up_at)}</li>}
+        {row.returned_at && <li>Returned · {dateLabel(row.returned_at)}</li>}
+        {!row.status_changed_at && !row.picked_up_at && !row.returned_at && <li>{row.status}</li>}
+      </ol></section>}
       {review === row.id && <form className="fields" onSubmit={event => write.mutate({
         path: `bookings/${row.id}/review/`, body: formData(event),
       }, { onSuccess: () => setReview(null) })}>
@@ -232,10 +261,28 @@ function Bookings({ owner = false }: { owner?: boolean }) {
   </>
 }
 
+function Dashboard({ owner = false }: { owner?: boolean }) {
+  const query = useQuery({
+    queryKey: [owner ? 'owner-bookings' : 'bookings'],
+    queryFn: () => api<Booking[]>(owner ? 'owner/bookings/' : 'bookings/'),
+  })
+  const active = query.data?.filter(booking => ['Pending', 'Confirmed', 'In progress'].includes(booking.status))
+    .sort((left, right) => left.start_date.localeCompare(right.start_date))
+  return <><h1>{owner ? 'Owner dashboard' : 'My dashboard'}</h1>
+    {query.isPending && <Busy />}<Notice error={query.error} />
+    {owner ? <><p>{active?.filter(row => row.status === 'Pending').length ?? 0} pending requests · {active?.filter(row => row.overdue).length ?? 0} overdue returns</p>
+      <div className="actions"><Link className="button" to="/owner/requests">Review requests</Link><Link className="button secondary" to="/owner/fleet">Manage fleet</Link></div>
+    </> : active?.[0] ? <section className="panel narrow"><h2>Next rental</h2><p>{active[0].vehicle.name} · {dateLabel(active[0].start_date)}</p><p>{active[0].status}</p>
+      <Link className="button" to={`/bookings/${active[0].id}`}>View booking</Link></section>
+      : <><p>Your next rental will appear here.</p><Link className="button" to="/vehicles">Browse vehicles</Link></>}
+  </>
+}
+
 function Fleet() {
   const query = useQuery({ queryKey: ['fleet'], queryFn: () => api<FleetVehicle[]>('owner/fleet/') })
   const write = useWrite()
   const [editing, setEditing] = useState<FleetVehicle | 'new' | null>(null)
+  const [archiving, setArchiving] = useState<number | null>(null)
   const vehicle = editing && editing !== 'new' ? editing : undefined
   return <><div className="section-head"><h1>My fleet</h1><button onClick={() => setEditing('new')}>List a vehicle</button></div>
     {query.isPending && <Busy />}<Notice error={query.error} /><Notice error={write.error} />
@@ -265,10 +312,12 @@ function Fleet() {
         <button className="secondary" disabled={write.isPending} onClick={() => write.mutate({
           path: `owner/fleet/${item.id}/`, method: 'PATCH', body: { is_available: !item.is_available },
         })}>{item.is_available ? 'Unpublish' : 'Publish'}</button>
-        <button className="secondary" disabled={write.isPending} onClick={() => {
-          if (window.confirm(`Archive ${item.name}? Its booking history will be kept.`))
-            write.mutate({ path: `owner/fleet/${item.id}/`, method: 'DELETE' })
-        }}>Archive</button>
+        {archiving === item.id ? <>
+          <button disabled={write.isPending} onClick={() => write.mutate({
+            path: `owner/fleet/${item.id}/`, method: 'DELETE',
+          }, { onSuccess: () => setArchiving(null) })}>Confirm archive</button>
+          <button className="secondary" onClick={() => setArchiving(null)}>Keep listing</button>
+        </> : <button className="secondary" onClick={() => setArchiving(item.id)}>Archive</button>}
       </div>}
     </article>)}</div>
   </>
@@ -315,6 +364,14 @@ export default function App() {
   return <BrowserRouter basename="/app"><Layout><Routes>
     <Route index element={<Home />} /><Route path="vehicles" element={<Catalog />} />
     <Route path="vehicles/:id" element={<VehiclePage />} /><Route path="sign-in" element={<SignIn />} />
+    <Route path="register" element={<AccountScreen screen="signup" />} />
+    <Route path="verify-email/:key" element={<AccountScreen screen="verify" />} />
+    <Route path="reset-password" element={<AccountScreen screen="request-reset" />} />
+    <Route path="reset-password/:key" element={<AccountScreen screen="reset" />} />
+    <Route path="account" element={<RequireSession><AccountScreen screen="account" /></RequireSession>} />
+    <Route path="dashboard" element={<RequireSession><Dashboard /></RequireSession>} />
+    <Route path="owner" element={<RequireSession><Dashboard owner /></RequireSession>} />
+    <Route path="bookings/:id" element={<RequireSession><Bookings /></RequireSession>} />
     <Route path="bookings" element={<RequireSession><Bookings /></RequireSession>} />
     <Route path="owner/requests" element={<RequireSession><Bookings owner /></RequireSession>} />
     <Route path="owner/fleet" element={<RequireSession><Fleet /></RequireSession>} />

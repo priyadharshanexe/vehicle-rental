@@ -21,5 +21,23 @@ services:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql/init-test-db.sh:/docker-entrypoint-initdb.d/init-test-db.sh:ro
 
+  web:
+    profiles: ["app"]
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - media-data:/app/media
+
 volumes:
   mysql-data:
+  media-data:

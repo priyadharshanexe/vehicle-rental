@@ -31,17 +31,17 @@ class BookingPermissionsTests(TestCase):
 
     def test_get_cannot_approve_booking(self):
         self.sign_in(self.owner)
-        url = reverse("approve_booking", args=[self.booking.pk])
+        url = reverse("api_booking_action", args=[self.booking.pk, "approve"])
         self.assertEqual(self.client.get(url).status_code, 405)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, "Pending")
 
     def test_only_vehicle_owner_can_approve(self):
-        url = reverse("approve_booking", args=[self.booking.pk])
+        url = reverse("api_booking_action", args=[self.booking.pk, "approve"])
         self.sign_in(self.renter)
         self.assertEqual(self.client.post(url).status_code, 404)
         self.sign_in(self.owner)
-        self.assertRedirects(self.client.post(url), reverse("owner_bookings"))
+        self.assertEqual(self.client.post(url).status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, "Confirmed")
 
@@ -55,13 +55,13 @@ class BookingPermissionsTests(TestCase):
     def test_booking_rejects_invalid_dates_and_unavailable_vehicle(self):
         self.sign_in(self.renter)
         vehicle = self.booking.vehicle
-        url = reverse("book_vehicle", args=[vehicle.pk])
-        self.assertContains(self.client.post(url, {"start_date": "invalid"}), "Enter a valid date")
+        url = reverse("api_bookings")
+        self.assertContains(self.client.post(url, {"vehicle_id": vehicle.pk, "start_date": "invalid"}), "Enter a valid date", status_code=400)
         vehicle.is_available = False
         vehicle.save(update_fields=["is_available"])
         today = timezone.localdate().isoformat()
-        response = self.client.post(url, {"start_date": today, "end_date": today})
-        self.assertContains(response, "This vehicle is no longer available.")
+        response = self.client.post(url, {"vehicle_id": self.booking.vehicle_id, "start_date": today, "end_date": today})
+        self.assertContains(response, "This vehicle is no longer available.", status_code=409)
         self.assertEqual(Booking.objects.count(), 1)
 
     def test_booking_rejects_overlap_and_prices_one_day(self):
@@ -69,17 +69,17 @@ class BookingPermissionsTests(TestCase):
         today = timezone.localdate()
         self.booking.start_date = self.booking.end_date = today
         self.booking.save(update_fields=["start_date", "end_date"])
-        url = reverse("book_vehicle", args=[self.booking.vehicle_id])
-        response = self.client.post(url, {"start_date": today, "end_date": today})
-        self.assertContains(response, "Vehicle already booked for these dates.")
+        url = reverse("api_bookings")
+        response = self.client.post(url, {"vehicle_id": self.booking.vehicle_id, "start_date": today, "end_date": today})
+        self.assertContains(response, "Vehicle already booked for these dates.", status_code=409)
         tomorrow = today + timedelta(days=1)
-        response = self.client.post(url, {"start_date": tomorrow, "end_date": tomorrow})
-        self.assertRedirects(response, reverse("my_bookings"))
+        response = self.client.post(url, {"vehicle_id": self.booking.vehicle_id, "start_date": tomorrow, "end_date": tomorrow})
+        self.assertEqual(response.status_code, 201)
         self.assertEqual(Booking.objects.get(start_date=tomorrow).total_price, 100)
 
     def test_only_owner_can_record_pickup_and_return_in_order(self):
-        pickup = reverse("pickup_vehicle", args=[self.booking.pk])
-        dropoff = reverse("return_vehicle", args=[self.booking.pk])
+        pickup = reverse("api_booking_action", args=[self.booking.pk, "pickup"])
+        dropoff = reverse("api_booking_action", args=[self.booking.pk, "return"])
         self.booking.status = Booking.Status.CONFIRMED
         self.booking.save(update_fields=["status"])
 
@@ -90,12 +90,12 @@ class BookingPermissionsTests(TestCase):
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
 
-        self.assertRedirects(self.client.post(pickup), reverse("owner_bookings"))
+        self.assertEqual(self.client.post(pickup).status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.IN_PROGRESS)
         self.assertIsNotNone(self.booking.picked_up_at)
 
-        self.assertRedirects(self.client.post(dropoff), reverse("owner_bookings"))
+        self.assertEqual(self.client.post(dropoff).status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.RETURNED)
         self.assertGreaterEqual(self.booking.returned_at, self.booking.picked_up_at)
@@ -103,14 +103,14 @@ class BookingPermissionsTests(TestCase):
     def test_archive_preserves_booking_history_and_rejects_open_rentals(self):
         self.sign_in(self.owner)
         vehicle = self.booking.vehicle
-        url = reverse("archive_vehicle", args=[vehicle.pk])
-        self.assertRedirects(self.client.post(url), reverse("my_vehicles"))
+        url = reverse("api_fleet_vehicle", args=[vehicle.pk])
+        self.assertEqual(self.client.delete(url).status_code, 409)
         vehicle.refresh_from_db()
         self.assertIsNone(vehicle.archived_at)
 
         self.booking.status = Booking.Status.RETURNED
         self.booking.save(update_fields=["status"])
-        self.assertRedirects(self.client.post(url), reverse("my_vehicles"))
+        self.assertEqual(self.client.delete(url).status_code, 204)
         vehicle.refresh_from_db()
         self.assertIsNotNone(vehicle.archived_at)
         self.assertFalse(vehicle.is_available)
@@ -120,16 +120,16 @@ class BookingPermissionsTests(TestCase):
         self.booking.expires_at = timezone.now() - timedelta(seconds=1)
         self.booking.save(update_fields=["expires_at"])
         self.sign_in(self.owner)
-        self.client.post(reverse("approve_booking", args=[self.booking.pk]))
+        self.client.post(reverse("api_booking_action", args=[self.booking.pk, "approve"]))
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.display_status, Booking.Status.EXPIRED)
 
         self.sign_in(self.renter)
         today = timezone.localdate()
-        response = self.client.post(reverse("book_vehicle", args=[self.booking.vehicle_id]), {
-            "start_date": today, "end_date": today,
+        response = self.client.post(reverse("api_bookings"), {
+            "vehicle_id": self.booking.vehicle_id, "start_date": today, "end_date": today,
         })
-        self.assertRedirects(response, reverse("my_bookings"))
+        self.assertEqual(response.status_code, 201)
         quote = Booking.objects.exclude(pk=self.booking.pk).get()
         vehicle = self.booking.vehicle
         vehicle.price_per_day = 200
@@ -145,17 +145,17 @@ class BookingPermissionsTests(TestCase):
         today = timezone.localdate()
         dates = {"start_date": today, "end_date": today}
         vehicle_id = self.booking.vehicle_id
-        maintenance = reverse("vehicle_maintenance", args=[vehicle_id])
-        self.assertRedirects(self.client.post(maintenance, {**dates, "reason": "Service"}), maintenance)
+        maintenance = reverse("api_maintenance", args=[vehicle_id])
+        self.assertEqual(self.client.post(maintenance, {**dates, "reason": "Service"}).status_code, 201)
         self.sign_in(self.renter)
-        self.assertNotContains(self.client.get(reverse("vehicle_list"), dates), "View Car")
-        response = self.client.post(reverse("book_vehicle", args=[vehicle_id]), dates)
-        self.assertContains(response, "scheduled maintenance")
+        self.assertEqual(self.client.get(reverse("api_vehicle_list"), dates).json()["results"], [])
+        response = self.client.post(reverse("api_bookings"), {**dates, "vehicle_id": vehicle_id})
+        self.assertContains(response, "scheduled maintenance", status_code=409)
 
     def test_only_renter_can_review_completed_booking_once(self):
         from .models import Feedback
 
-        url = reverse("add_feedback", args=[self.booking.pk])
+        url = reverse("api_review", args=[self.booking.pk])
         data = {"rating": 5, "comment": "Easy pickup"}
         self.sign_in(self.renter)
         self.assertEqual(self.client.post(url, data).status_code, 404)
@@ -164,6 +164,6 @@ class BookingPermissionsTests(TestCase):
         self.sign_in(self.owner)
         self.assertEqual(self.client.post(url, data).status_code, 404)
         self.sign_in(self.renter)
-        self.assertRedirects(self.client.post(url, data), reverse("my_bookings"))
-        self.assertRedirects(self.client.post(url, data), reverse("my_bookings"))
+        self.assertEqual(self.client.post(url, data).status_code, 201)
+        self.assertEqual(self.client.post(url, data).status_code, 409)
         self.assertEqual(Feedback.objects.filter(booking=self.booking).count(), 1)

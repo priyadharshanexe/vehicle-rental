@@ -1,0 +1,26 @@
+{% extends "rental/base.html" %}
+{% load socialaccount %}
+
+{% block content %}
+<section class="mx-auto" style="max-width: 28rem">
+  <h1>Sign in</h1>
+  <form method="post" action="{% url 'account_login' %}">
+    {% csrf_token %}
+    {{ form.as_p }}
+    {{ redirect_field }}
+    <button type="submit" class="btn btn-primary">Sign in</button>
+  </form>
+  <p class="mt-3"><a href="{% url 'account_reset_password' %}">Reset your password</a></p>
+  <p><a href="{% url 'account_signup' %}">Create an account</a></p>
+  {% get_providers as providers %}
+  {% for provider in providers %}
+    {% if provider.id == "google" %}
+      <form method="post" action="{% provider_login_url 'google' %}">
+        {% csrf_token %}
+        {{ redirect_field }}
+        <button type="submit" class="btn btn-outline-dark">Continue with Google</button>
+      </form>
+    {% endif %}
+  {% endfor %}
+</section>
+{% endblock %}

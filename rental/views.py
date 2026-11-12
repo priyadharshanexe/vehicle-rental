@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from .models import CustomUser
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from .models import Vehicle
 from .models import Booking
 from datetime import date
@@ -12,57 +13,20 @@ from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404
 from .models import Feedback
 
-def register(request):
-    if request.method == 'POST':
-        name = request.POST['name']
-        email = request.POST['email']
-        phone = request.POST['phone']
-        password = request.POST['password']
-
-        if CustomUser.objects.filter(email=email).exists():
-            messages.error(request, 'Email already registered')
-            return redirect('register')
-
-        CustomUser.objects.create(
-            name=name,
-            email=email,
-            phone=phone,
-            password=password
-        )
-
-        messages.success(request, 'Registration successful! Please login.')
-        return redirect('login')
-
-    return render(request, 'rental/register.html')
-
-def login(request):
-    if request.method == 'POST':
-        email = request.POST['email']
-        password = request.POST['password']
-
-        user = CustomUser.objects.filter(email=email, password=password).first()
-
-        if user:
-            request.session['user_id'] = user.id
-            request.session['user_name'] = user.name
-            return redirect('dashboard')
-        else:
-            messages.error(request, 'Invalid email or password')
-            return redirect('login')
-
-    return render(request, 'rental/login.html')
+def rental_profile(user):
+    profile, _ = CustomUser.objects.get_or_create(
+        account=user,
+        defaults={
+            "email": user.email or f"account-{user.pk}@invalid.invalid",
+            "name": (user.get_full_name() or user.email or user.username)[:100],
+        },
+    )
+    return profile
 
 
-@require_POST
-def logout(request):
-    request.session.flush()
-    return redirect('login')
-
+@login_required
 def dashboard(request):
-    if 'user_id' not in request.session:
-        return redirect('login')
-
-    user = CustomUser.objects.get(id=request.session['user_id'])
+    user = rental_profile(request.user)
 
     # get user's bookings
     bookings = Booking.objects.filter(user=user)
@@ -84,10 +48,8 @@ def dashboard(request):
 
     return render(request, 'rental/dashboard.html', context)
 
+@login_required
 def vehicle_list(request):
-    if 'user_id' not in request.session:
-        return redirect('login')
-
     query = request.GET.get('q')
     vehicle_type = request.GET.get('type')
     fuel_type = request.GET.get('fuel')
@@ -113,12 +75,10 @@ def vehicle_list(request):
 
     return render(request, 'rental/vehicle_list.html', context)
 
+@login_required
 def book_vehicle(request, vehicle_id):
-    if 'user_id' not in request.session:
-        return redirect('login')
-
     vehicle = Vehicle.objects.get(id=vehicle_id)
-    user = CustomUser.objects.get(id=request.session['user_id'])
+    user = rental_profile(request.user)
 
     if request.method == 'POST':
         start_date = request.POST['start_date']
@@ -178,11 +138,9 @@ def book_vehicle(request, vehicle_id):
         'booked_dates': booked_dates
     })
 
+@login_required
 def my_bookings(request):
-    if 'user_id' not in request.session:
-        return redirect('login')
-
-    bookings = Booking.objects.filter(user_id=request.session['user_id'])
+    bookings = Booking.objects.filter(user_id=rental_profile(request.user).pk)
 
     for booking in bookings:
         booking.days = (booking.end_date - booking.start_date).days + 1
@@ -190,11 +148,9 @@ def my_bookings(request):
     return render(request, 'rental/my_bookings.html', {'bookings': bookings})
 
 @require_POST
+@login_required
 def cancel_booking(request, booking_id):
-    user_id = request.session.get('user_id')
-    if user_id is None:
-        return redirect('login')
-
+    user_id = rental_profile(request.user).pk
     booking = get_object_or_404(Booking, id=booking_id, user_id=user_id, status="Confirmed")
 
     booking.status = "Cancelled"
@@ -205,11 +161,9 @@ def cancel_booking(request, booking_id):
 
 
 @require_POST
+@login_required
 def return_vehicle(request, booking_id):
-    user_id = request.session.get('user_id')
-    if user_id is None:
-        return redirect('login')
-
+    user_id = rental_profile(request.user).pk
     booking = get_object_or_404(Booking, id=booking_id, user_id=user_id, status="Confirmed")
     booking.status = "Returned"
 
@@ -270,11 +224,9 @@ def admin_dashboard(request):
 
     return render(request, "rental/admin_dashboard.html", context)
 
+@login_required
 def download_receipt(request, booking_id):
-    user_id = request.session.get('user_id')
-    if user_id is None:
-        return redirect('login')
-
+    user_id = rental_profile(request.user).pk
     booking = get_object_or_404(Booking, id=booking_id, user_id=user_id)
 
     response = HttpResponse(content_type='application/pdf')
@@ -295,10 +247,8 @@ def download_receipt(request, booking_id):
 
     return response
 
+@login_required
 def add_vehicle(request):
-
-    if 'user_id' not in request.session:
-        return redirect('login')
 
     if request.method == "POST":
 
@@ -309,7 +259,7 @@ def add_vehicle(request):
         price = request.POST['price']
         image = request.FILES.get('image')
 
-        owner = CustomUser.objects.get(id=request.session['user_id'])
+        owner = rental_profile(request.user)
 
         vehicle_count = Vehicle.objects.filter(owner=owner).count()
 
@@ -331,24 +281,20 @@ def add_vehicle(request):
 
     return render(request, "rental/add_vehicle.html")
 
+@login_required
 def my_vehicles(request):
 
-    if 'user_id' not in request.session:
-        return redirect('login')
-
-    owner = CustomUser.objects.get(id=request.session['user_id'])
+    owner = rental_profile(request.user)
 
     vehicles = Vehicle.objects.filter(owner=owner)
 
     return render(request, "rental/my_vehicles.html", {"vehicles": vehicles})
 
 @require_POST
+@login_required
 def toggle_vehicle(request, vehicle_id):
 
-    user_id = request.session.get('user_id')
-    if user_id is None:
-        return redirect('login')
-
+    user_id = rental_profile(request.user).pk
     vehicle = get_object_or_404(Vehicle, id=vehicle_id, owner_id=user_id)
 
     if vehicle.is_available:
@@ -361,27 +307,23 @@ def toggle_vehicle(request, vehicle_id):
     return redirect('my_vehicles')
 
 @require_POST
+@login_required
 def delete_vehicle(request, vehicle_id):
-    if 'user_id' not in request.session:
-        return redirect('login')
-
     vehicle = get_object_or_404(
     Vehicle,
     id=vehicle_id,
-    owner_id=request.session['user_id']
+    owner_id=rental_profile(request.user).pk
     )
     vehicle.delete()
 
     return redirect('my_vehicles')
 
+@login_required
 def edit_vehicle(request, vehicle_id):
-    if 'user_id' not in request.session:
-        return redirect('login')
-
     vehicle = get_object_or_404(
     Vehicle,
     id=vehicle_id,
-    owner_id=request.session['user_id']
+    owner_id=rental_profile(request.user).pk
     )
 
     if request.method == "POST":
@@ -397,12 +339,10 @@ def edit_vehicle(request, vehicle_id):
 
     return render(request, "rental/edit_vehicle.html", {"vehicle": vehicle})
 
+@login_required
 def owner_earnings(request):
 
-    if 'user_id' not in request.session:
-        return redirect('login')
-
-    owner = CustomUser.objects.get(id=request.session['user_id'])
+    owner = rental_profile(request.user)
 
     vehicles = Vehicle.objects.filter(owner=owner)
 
@@ -434,23 +374,19 @@ def owner_earnings(request):
 
     return render(request, "rental/owner_earnings.html", context)
 
+@login_required
 def owner_bookings(request):
 
-    if 'user_id' not in request.session:
-        return redirect('login')
-
-    owner = CustomUser.objects.get(id=request.session['user_id'])
+    owner = rental_profile(request.user)
 
     bookings = Booking.objects.filter(vehicle__owner=owner)
 
     return render(request, "rental/owner_bookings.html", {"bookings": bookings})
 
 @require_POST
+@login_required
 def approve_booking(request, booking_id):
-    user_id = request.session.get('user_id')
-    if user_id is None:
-        return redirect('login')
-
+    user_id = rental_profile(request.user).pk
     booking = get_object_or_404(Booking, id=booking_id, vehicle__owner_id=user_id, status="Pending")
 
     booking.status = "Confirmed"
@@ -459,11 +395,9 @@ def approve_booking(request, booking_id):
     return redirect('owner_bookings')
 
 @require_POST
+@login_required
 def reject_booking(request, booking_id):
-    user_id = request.session.get('user_id')
-    if user_id is None:
-        return redirect('login')
-
+    user_id = rental_profile(request.user).pk
     booking = get_object_or_404(Booking, id=booking_id, vehicle__owner_id=user_id, status="Pending")
 
     booking.status = "Rejected"
@@ -474,12 +408,10 @@ def reject_booking(request, booking_id):
 def home(request):
     return render(request, "rental/home.html")
 
+@login_required
 def add_feedback(request, vehicle_id):
 
-    if 'user_id' not in request.session:
-        return redirect('login')
-
-    user = CustomUser.objects.get(id=request.session['user_id'])
+    user = rental_profile(request.user)
     vehicle = Vehicle.objects.get(id=vehicle_id)
 
     if request.method == "POST":

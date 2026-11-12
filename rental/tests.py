@@ -1,5 +1,6 @@
 from datetime import date
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
@@ -19,9 +20,12 @@ class BookingPermissionsTests(TestCase):
         )
 
     def sign_in(self, user):
-        session = self.client.session
-        session["user_id"] = user.pk
-        session.save()
+        account = get_user_model().objects.create_user(
+            username=user.email, email=user.email,
+        ) if user.account_id is None else user.account
+        user.account = account
+        user.save(update_fields=["account"])
+        self.client.force_login(account)
 
     def test_get_cannot_approve_booking(self):
         self.sign_in(self.owner)

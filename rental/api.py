@@ -1,6 +1,8 @@
 from collections.abc import Mapping
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.http import Http404
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.views.decorators.cache import never_cache
@@ -10,8 +12,12 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Booking, Vehicle
-from .views import BookingDatesForm, rental_profile, reserve_vehicle
+from .models import Booking, Feedback, MaintenanceBlock, Vehicle
+from .views import (
+    BookingDatesForm, FeedbackForm, MaintenanceForm, ReportDatesForm, VehicleForm,
+    active_bookings, archive_listing, completed_booking_values, create_listing,
+    rental_profile, reserve_vehicle, schedule_maintenance, search_vehicles, transition_booking,
+)
 
 
 class VehicleSerializer(serializers.ModelSerializer):
@@ -23,10 +29,16 @@ class VehicleSerializer(serializers.ModelSerializer):
 class BookingSerializer(serializers.ModelSerializer):
     vehicle = VehicleSerializer(read_only=True)
     status = serializers.CharField(source="display_status")
+    renter_name = serializers.CharField(source="user.name")
+    reviewed = serializers.SerializerMethodField()
+
+    def get_reviewed(self, booking):
+        return hasattr(booking, "review")
 
     class Meta:
         model = Booking
-        fields = ("id", "vehicle", "start_date", "end_date", "status", "total_price", "quoted_daily_rate")
+        fields = ("id", "vehicle", "start_date", "end_date", "status", "total_price", "quoted_daily_rate",
+                  "renter_name", "picked_up_at", "returned_at", "reviewed")
 
 
 @never_cache
@@ -48,6 +60,12 @@ class VehicleList(generics.ListAPIView):
     serializer_class = VehicleSerializer
     queryset = Vehicle.objects.filter(is_available=True, archived_at__isnull=True).order_by("name", "pk")
 
+    def list(self, request, *args, **kwargs):
+        vehicles, _, dates = search_vehicles(request.query_params)
+        if dates.is_bound and not dates.is_valid():
+            return Response(dates.errors, status=400)
+        return Response(self.get_serializer(vehicles.order_by("name", "pk"), many=True).data)
+
 
 @never_cache
 @api_view(["GET", "POST"])
@@ -56,7 +74,7 @@ class VehicleList(generics.ListAPIView):
 def bookings(request):
     profile = rental_profile(request.user)
     if request.method == "GET":
-        rows = Booking.objects.filter(user=profile).select_related("vehicle").order_by("-start_date", "-pk")
+        rows = Booking.objects.filter(user=profile).select_related("vehicle", "user", "review").order_by("-start_date", "-pk")
         return Response(BookingSerializer(rows, many=True, context={"request": request}).data)
     if not isinstance(request.data, Mapping):
         return Response({"detail": "Expected an object."}, status=status.HTTP_400_BAD_REQUEST)
@@ -77,3 +95,160 @@ def bookings(request):
         BookingSerializer(booking, context={"request": request}).data,
         status=status.HTTP_201_CREATED,
     )
+
+class FleetVehicleSerializer(VehicleSerializer):
+    class Meta(VehicleSerializer.Meta):
+        fields = (*VehicleSerializer.Meta.fields, "is_available", "archived_at")
+
+
+class VehicleDetail(generics.RetrieveAPIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [AllowAny]
+    serializer_class = VehicleSerializer
+    queryset = VehicleList.queryset
+
+    def retrieve(self, request, *args, **kwargs):
+        vehicle = self.get_object()
+        return Response({
+            **self.get_serializer(vehicle).data,
+            "unavailable": [
+                *active_bookings().filter(vehicle=vehicle).values("start_date", "end_date"),
+                *vehicle.maintenance_blocks.values("start_date", "end_date"),
+            ],
+            "reviews": list(Feedback.objects.filter(vehicle=vehicle, booking__isnull=False)
+                            .order_by("-created_at").values("id", "rating", "comment")[:5]),
+        })
+
+
+class OwnerBookings(generics.ListAPIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = BookingSerializer
+
+    def get_queryset(self):
+        return Booking.objects.filter(vehicle__owner__account=self.request.user).select_related(
+            "vehicle", "user", "review"
+        ).order_by("start_date", "pk")
+
+
+@api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def booking_action(request, pk, action):
+    actions = {
+        "cancel": (Booking.Status.CANCELLED, (Booking.Status.PENDING, Booking.Status.CONFIRMED), False),
+        "approve": (Booking.Status.CONFIRMED, (Booking.Status.PENDING,), True),
+        "reject": (Booking.Status.REJECTED, (Booking.Status.PENDING,), True),
+        "pickup": (Booking.Status.IN_PROGRESS, (Booking.Status.CONFIRMED,), True),
+        "return": (Booking.Status.RETURNED, (Booking.Status.IN_PROGRESS,), True),
+    }
+    if action not in actions:
+        raise Http404
+    destination, allowed, owner = actions[action]
+    try:
+        booking = transition_booking(request.user, pk, destination, allowed, owner=owner)
+    except ValidationError as error:
+        return Response({"detail": error.messages[0]}, status=409)
+    return Response(BookingSerializer(booking, context={"request": request}).data)
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def fleet(request):
+    owner = rental_profile(request.user)
+    if request.method == "GET":
+        vehicles = Vehicle.objects.filter(owner=owner).order_by("archived_at", "name", "pk")
+        return Response(FleetVehicleSerializer(vehicles, many=True, context={"request": request}).data)
+    form = VehicleForm(request.data, request.FILES)
+    if not form.is_valid():
+        return Response(form.errors, status=400)
+    try:
+        vehicle = create_listing(owner, form)
+    except ValidationError as error:
+        return Response({"detail": error.messages[0]}, status=409)
+    return Response(FleetVehicleSerializer(vehicle, context={"request": request}).data, status=201)
+
+
+@api_view(["PATCH", "DELETE"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def fleet_vehicle(request, pk):
+    vehicle = get_object_or_404(
+        Vehicle.objects.select_for_update(), pk=pk, owner__account=request.user,
+        archived_at__isnull=True,
+    )
+    if request.method == "DELETE":
+        try:
+            archive_listing(vehicle)
+        except ValidationError as error:
+            return Response({"detail": error.messages[0]}, status=409)
+        return Response(status=204)
+    if set(request.data) == {"is_available"}:
+        field = serializers.BooleanField()
+        try:
+            vehicle.is_available = field.run_validation(request.data["is_available"])
+        except serializers.ValidationError as error:
+            return Response({"is_available": error.detail}, status=400)
+        vehicle.save(update_fields=["is_available"])
+        return Response(FleetVehicleSerializer(vehicle, context={"request": request}).data)
+    data = {field: request.data.get(field, getattr(vehicle, field)) for field in VehicleForm.Meta.fields
+            if field != "vehicle_image"}
+    form = VehicleForm(data, request.FILES, instance=vehicle)
+    if not form.is_valid():
+        return Response(form.errors, status=400)
+    vehicle = form.save()
+    return Response(FleetVehicleSerializer(vehicle, context={"request": request}).data)
+
+@api_view(["GET", "POST", "DELETE"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def maintenance(request, pk, block_id=None):
+    vehicles = Vehicle.objects.select_for_update() if request.method != "GET" else Vehicle.objects
+    vehicle = get_object_or_404(vehicles, pk=pk, owner__account=request.user, archived_at__isnull=True)
+    blocks = vehicle.maintenance_blocks.order_by("start_date", "pk")
+    if request.method == "DELETE":
+        get_object_or_404(blocks, pk=block_id).delete()
+        return Response(status=204)
+    if request.method == "GET":
+        return Response(list(blocks.values("id", "start_date", "end_date", "reason")))
+    form = MaintenanceForm(request.data)
+    if not form.is_valid():
+        return Response(form.errors, status=400)
+    try:
+        block = schedule_maintenance(vehicle, **form.cleaned_data)
+    except ValidationError as error:
+        return Response({"detail": error.messages[0]}, status=409)
+    return Response({"id": block.pk, **form.cleaned_data}, status=201)
+
+
+@api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def booking_values(request):
+    form = ReportDatesForm(request.query_params)
+    if not form.is_valid():
+        return Response(form.errors, status=400)
+    rows = completed_booking_values(rental_profile(request.user), form)
+    for row in rows:
+        row["value"] = str(row["value"])
+    return Response(rows)
+
+
+@api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def review(request, pk):
+    booking = get_object_or_404(Booking.objects.select_for_update(), pk=pk,
+                               user__account=request.user, status=Booking.Status.RETURNED)
+    if Feedback.objects.filter(booking=booking).exists():
+        return Response({"detail": "You have already reviewed this booking."}, status=409)
+    form = FeedbackForm(request.data)
+    if not form.is_valid():
+        return Response(form.errors, status=400)
+    Feedback.objects.create(booking=booking, vehicle_id=booking.vehicle_id,
+                            user_id=booking.user_id, **form.cleaned_data)
+    return Response(status=201)

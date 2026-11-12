@@ -41,15 +41,15 @@ def dashboard(request):
     return render(request, "rental/dashboard.html", {"upcoming": upcoming})
 
 
-def vehicle_list(request):
+def search_vehicles(params):
     vehicles = Vehicle.objects.filter(is_available=True, archived_at__isnull=True)
-    filters = {key: request.GET.get(key, "").strip() for key in
+    filters = {key: params.get(key, "").strip() for key in
                ("q", "type", "fuel", "location", "start_date", "end_date")}
     for key, lookup in (("q", "name__icontains"), ("type", "vehicle_type"),
                         ("fuel", "fuel_type__icontains"), ("location", "location__icontains")):
         if filters[key]:
             vehicles = vehicles.filter(**{lookup: filters[key]})
-    dates = BookingDatesForm(request.GET if filters["start_date"] or filters["end_date"] else None)
+    dates = BookingDatesForm(params if filters["start_date"] or filters["end_date"] else None)
     if dates.is_bound and dates.is_valid():
         conflicting = active_bookings().filter(
             start_date__lte=dates.cleaned_data["end_date"],
@@ -61,6 +61,11 @@ def vehicle_list(request):
         vehicles = vehicles.exclude(pk__in=conflicting.values("vehicle_id")).exclude(
             pk__in=blocked.values("vehicle_id")
         )
+    return vehicles, filters, dates
+
+
+def vehicle_list(request):
+    vehicles, filters, dates = search_vehicles(request.GET)
     params = request.GET.copy()
     params.pop("page", None)
     return render(request, "rental/vehicle_list.html", {
@@ -160,43 +165,46 @@ def my_bookings(request):
 
 
 @transaction.atomic
-def change_booking_status(request, booking_id, destination, allowed, *, owner=False):
-    profile = rental_profile(request.user)
+def transition_booking(actor, booking_id, destination, allowed, *, owner=False):
+    profile = rental_profile(actor)
     scope = {"vehicle__owner": profile} if owner else {"user": profile}
     reference = get_object_or_404(Booking, pk=booking_id, **scope)
     vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=reference.vehicle_id)
     booking = get_object_or_404(Booking.objects.select_for_update(), pk=booking_id)
-    target = "owner_bookings" if owner else "my_bookings"
     if booking.display_status not in allowed:
-        messages.error(request, "This booking has changed. Check its current status.")
-        return redirect(target)
+        raise forms.ValidationError("This booking has changed. Check its current status.")
 
     today = timezone.localdate()
     if destination == Booking.Status.CANCELLED and booking.status == Booking.Status.CONFIRMED and today >= booking.start_date:
-        messages.error(request, "Confirmed bookings can be cancelled before the pickup date.")
-        return redirect(target)
+        raise forms.ValidationError("Confirmed bookings can be cancelled before the pickup date.")
     if destination == Booking.Status.CONFIRMED and booking.start_date < today:
-        messages.error(request, "The pickup date has passed.")
-        return redirect(target)
+        raise forms.ValidationError("The pickup date has passed.")
     if destination == Booking.Status.IN_PROGRESS:
         if not booking.start_date <= today <= booking.end_date:
-            messages.error(request, "Pickup must be within the booked dates.")
-            return redirect(target)
+            raise forms.ValidationError("Pickup must be within the booked dates.")
         if Booking.objects.filter(vehicle=vehicle, status=Booking.Status.IN_PROGRESS).exists():
-            messages.error(request, "Record the previous rental's return before pickup.")
-            return redirect(target)
+            raise forms.ValidationError("Record the previous rental's return before pickup.")
         booking.picked_up_at = timezone.now()
     if destination == Booking.Status.RETURNED:
         booking.returned_at = timezone.now()
     booking.status = destination
     booking.status_changed_at = timezone.now()
-    booking.status_changed_by = request.user
+    booking.status_changed_by = actor
     booking.save(update_fields=[
         "status", "picked_up_at", "returned_at", "status_changed_at", "status_changed_by",
     ])
-    logger.info("booking_status_changed booking_id=%s actor_id=%s status=%s", booking.pk, request.user.pk, destination)
-    messages.success(request, f"Booking updated to {destination.lower()}.")
-    return redirect(target)
+    logger.info("booking_status_changed booking_id=%s actor_id=%s status=%s", booking.pk, actor.pk, destination)
+    return booking
+
+
+def change_booking_status(request, booking_id, destination, allowed, *, owner=False):
+    try:
+        transition_booking(request.user, booking_id, destination, allowed, owner=owner)
+    except forms.ValidationError as error:
+        messages.error(request, error.messages[0])
+    else:
+        messages.success(request, f"Booking updated to {destination.lower()}.")
+    return redirect("owner_bookings" if owner else "my_bookings")
 
 
 @require_POST
@@ -277,19 +285,28 @@ class VehicleForm(forms.ModelForm):
         return image
 
 
+@transaction.atomic
+def create_listing(owner, form):
+    CustomUser.objects.select_for_update().get(pk=owner.pk)
+    if Vehicle.objects.filter(owner=owner, archived_at__isnull=True).count() >= 3:
+        raise forms.ValidationError("You can list up to three vehicles at a time.")
+    vehicle = form.save(commit=False)
+    vehicle.owner = owner
+    vehicle.save()
+    return vehicle
+
+
 @login_required
 def add_vehicle(request):
     owner = rental_profile(request.user)
     form = VehicleForm(request.POST if request.method == "POST" else None, request.FILES)
     if request.method == "POST" and form.is_valid():
-        with transaction.atomic():
-            CustomUser.objects.select_for_update().get(pk=owner.pk)
-            if Vehicle.objects.filter(owner=owner, archived_at__isnull=True).count() < 3:
-                vehicle = form.save(commit=False)
-                vehicle.owner = owner
-                vehicle.save()
-                return redirect("my_vehicles")
-        form.add_error(None, "You can list up to three vehicles at a time.")
+        try:
+            create_listing(owner, form)
+        except forms.ValidationError as error:
+            form.add_error(None, error)
+        else:
+            return redirect("my_vehicles")
     return render(request, "rental/vehicle_form.html", {"form": form, "heading": "List a vehicle"})
 
 
@@ -321,19 +338,26 @@ def toggle_vehicle(request, vehicle_id):
 
     return redirect('my_vehicles')
 
+def archive_listing(vehicle):
+    if active_bookings().filter(vehicle=vehicle).exists():
+        raise forms.ValidationError("Resolve open bookings before archiving this vehicle.")
+    if vehicle.archived_at is None:
+        vehicle.archived_at = timezone.now()
+        vehicle.is_available = False
+        vehicle.save(update_fields=["archived_at", "is_available"])
+
+
 @require_POST
 @login_required
 @transaction.atomic
 def archive_vehicle(request, vehicle_id):
     owner = rental_profile(request.user)
     vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id, owner=owner)
-    open_bookings = active_bookings().filter(vehicle=vehicle)
-    if open_bookings.exists():
-        messages.error(request, "Resolve open bookings before archiving this vehicle.")
-    elif vehicle.archived_at is None:
-        vehicle.archived_at = timezone.now()
-        vehicle.is_available = False
-        vehicle.save(update_fields=["archived_at", "is_available"])
+    try:
+        archive_listing(vehicle)
+    except forms.ValidationError as error:
+        messages.error(request, error.messages[0])
+    else:
         messages.success(request, "Vehicle archived. Its booking history is preserved.")
     return redirect("my_vehicles")
 
@@ -362,10 +386,7 @@ class ReportDatesForm(forms.Form):
         return data
 
 
-@login_required
-def owner_earnings(request):
-    owner = rental_profile(request.user)
-    form = ReportDatesForm(request.GET)
+def completed_booking_values(owner, form):
     completed = Booking.objects.filter(vehicle__owner=owner, status=Booking.Status.RETURNED)
     if form.is_valid():
         for field, lookup in (("start_date", "gte"), ("end_date", "lte")):
@@ -377,6 +398,14 @@ def owner_earnings(request):
     rows = list(completed.values("vehicle_id", "vehicle__name").annotate(
         bookings=models.Count("pk"), value=models.Sum("total_price"),
     ).order_by("vehicle__name", "vehicle_id"))
+    return rows
+
+
+@login_required
+def owner_earnings(request):
+    owner = rental_profile(request.user)
+    form = ReportDatesForm(request.GET)
+    rows = completed_booking_values(owner, form)
     return render(request, "rental/owner_earnings.html", {
         "rows": rows, "total": sum(row["value"] for row in rows), "form": form,
     })
@@ -456,11 +485,18 @@ def vehicle_maintenance(request, vehicle_id):
         block.delete()
         return redirect("vehicle_maintenance", vehicle.pk)
     if request.method == "POST" and form.is_valid():
-        overlap = {"start_date__lte": form.cleaned_data["end_date"],
-                   "end_date__gte": form.cleaned_data["start_date"]}
-        if active_bookings().filter(vehicle=vehicle, **overlap).exists() or blocks.filter(**overlap).exists():
-            form.add_error(None, "Those dates overlap an existing rental or maintenance block.")
+        try:
+            schedule_maintenance(vehicle, **form.cleaned_data)
+        except forms.ValidationError as error:
+            form.add_error(None, error)
         else:
-            blocks.create(vehicle=vehicle, **form.cleaned_data)
             return redirect("vehicle_maintenance", vehicle.pk)
     return render(request, "rental/maintenance.html", {"vehicle": vehicle, "form": form, "blocks": blocks})
+
+
+def schedule_maintenance(vehicle, start_date, end_date, reason):
+    overlap = {"start_date__lte": end_date, "end_date__gte": start_date}
+    blocks = vehicle.maintenance_blocks
+    if active_bookings().filter(vehicle=vehicle, **overlap).exists() or blocks.filter(**overlap).exists():
+        raise forms.ValidationError("Those dates overlap an existing rental or maintenance block.")
+    return blocks.create(start_date=start_date, end_date=end_date, reason=reason)

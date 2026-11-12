@@ -12,7 +12,7 @@ A Django and MySQL marketplace where customers can browse cars and bikes and req
 
 1. Create a Python virtual environment and install dependencies with `python -m pip install -r requirements.txt`.
 2. Create a MySQL database and grant a dedicated user access.
-3. Set the variables in `.env.example` for your local environment.
+3. Copy `.env.example` to `.env` and fill in your local settings.
 4. Run `python manage.py migrate` and `python manage.py runserver`.
 5. Open http://127.0.0.1:8000/.
 

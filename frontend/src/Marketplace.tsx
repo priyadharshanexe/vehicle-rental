@@ -1,8 +1,10 @@
+import { Breadcrumb } from './Breadcrumb'
+import { Price, PriceBreakdown } from './Pricing'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, dateLabel, money, queryString } from './api'
+import { api, dateLabel, queryString } from './api'
 import type { Vehicle, VehicleDetail } from './api'
 import { Busy, Notice, Photo } from './shared'
 import { formData, useSession, useWrite } from './requests'
@@ -32,11 +34,11 @@ export function Home() {
       <Search compact />
     </section>
     <section className="featured">
-      <div className="section-head"><div><h2>Featured vehicles</h2></div><Link to="/vehicles">View all vehicles →</Link></div>
+      <div className="section-head"><h2>Featured vehicles</h2><Link className="button secondary" to="/vehicles">Browse all vehicles</Link></div>
       {(cars.isPending || bikes.isPending) && <Busy />}<Notice error={cars.error ?? bikes.error} />
       <div className="featured-grid">
         {[{ title: 'Cars', type: 'Car', result: cars.data }, { title: 'Bikes', type: 'Bike', result: bikes.data }].map(group =>
-          <section key={group.type}><div className="section-head category-head"><h3>{group.title}</h3><Link to={`/vehicles?type=${group.type}`}>Browse {group.title.toLowerCase()} →</Link></div>
+          <section key={group.type}><h3 className="category-head">{group.title}</h3>
             {group.result?.results.length === 0 && <p className="empty">No published listings in this category yet.</p>}
             <div className="cards">{featuredListings(group.result?.results ?? []).map(vehicle => <Listing key={vehicle.id} vehicle={vehicle} />)}</div>
           </section>)}
@@ -58,11 +60,13 @@ function Listing({ vehicle, params = '' }: { vehicle: Vehicle; params?: string }
   const url = `/vehicles/${vehicle.id}${params ? `?${params}` : ''}`
   const dates = new URLSearchParams(params)
   return <article className="listing">
-    <Link to={url} className="listing-photo" aria-label={`View ${vehicle.name}`}><Photo vehicle={vehicle} /><span>{vehicle.vehicle_type}</span></Link>
-    <div className="listing-body"><h3>{vehicle.name}</h3><p>{vehicle.location ?? 'Location on request'} · {vehicle.fuel_type}</p>
-      <p className="availability">{dates.has('start_date') && dates.has('end_date') ? 'Matches your dates' : 'Check dates on listing'}</p>
-      <div className="listing-bottom"><span><strong>{money(vehicle.price_per_day)}</strong> / day</span><Link to={url} aria-label={`View details for ${vehicle.name}`}>Details →</Link></div>
-    </div>
+    <Link to={url} className="listing-card-link" aria-label={`View details for ${vehicle.name}`}>
+      <div className="listing-photo"><Photo vehicle={vehicle} /><span>{vehicle.vehicle_type}</span></div>
+      <div className="listing-body"><h3>{vehicle.name}</h3><p>{vehicle.location ?? 'Location on request'} · {vehicle.fuel_type}</p>
+        {dates.has('start_date') && dates.has('end_date') && <p className="availability">Matches your dates</p>}
+        <div className="listing-bottom"><Price value={vehicle.price_per_day} label="/ day" /><span className="listing-arrow" aria-hidden="true">→</span></div>
+      </div>
+    </Link>
   </article>
 }
 
@@ -75,9 +79,8 @@ export function Catalog() {
     setParams(next)
   }
   const query = useQuery({ queryKey: ['vehicles', params.toString()], queryFn: () => api<CatalogResult>(`vehicles/?${params}`) })
-  return <><div className="page-heading"><h1>{params.get('type') === 'Car' ? 'Browse cars' : params.get('type') === 'Bike' ? 'Browse bikes' : 'Browse vehicles'}</h1><p>Explore local rentals and find a vehicle for your dates.</p></div><div className="catalog"><aside><details className="mobile-filters"><summary>Filters</summary><Search params={params} /><Link to="/vehicles">Clear filters</Link></details><div className="desktop-filters"><h2>Filters</h2><Search params={params} /><Link to="/vehicles">Clear filters</Link></div></aside><section>
+  return <><div className="page-heading"><h1>{params.get('type') === 'Car' ? 'Browse cars' : params.get('type') === 'Bike' ? 'Browse bikes' : 'Browse vehicles'}</h1></div><div className="catalog"><aside><details className="mobile-filters"><summary>Filters</summary><Search params={params} /><Link to="/vehicles">Clear filters</Link></details><div className="desktop-filters"><h2>Filters</h2><Search params={params} /><Link to="/vehicles">Clear filters</Link></div></aside><section>
     {query.isPending && <Busy />}<Notice error={query.error} />
-    {query.data && <p>{query.data.count} matching vehicles</p>}
     <div className="cards">{query.data?.results.map(vehicle => <Listing key={vehicle.id} vehicle={vehicle} params={params.toString()} />)}</div>
     {query.data?.count === 0 && <p className="empty">No matching vehicles. <Link to="/vehicles">Clear filters</Link>.</p>}
     {(query.data?.previous || query.data?.next) && <nav className="actions" aria-label="Catalog pages">
@@ -98,11 +101,14 @@ function VehicleReservation({ id, params }: { id: string | undefined; params: UR
   const [start, setStart] = useState(params.get('start_date') ?? '')
   const [end, setEnd] = useState(params.get('end_date') ?? '')
   const quoteParams = new URLSearchParams({ start_date: start, end_date: end })
-  const quote = useQuery({
-    queryKey: ['quote', id, start, end], enabled: Boolean(start && end),
-    queryFn: () => api<{ days: number; total_price: string }>(`vehicles/${id}/quote/?${quoteParams}`),
-  })
   const query = useQuery({ queryKey: ['vehicle', id], queryFn: () => api<VehicleDetail>(`vehicles/${id}/`) })
+  const blocked = overlapsUnavailableDates(query.data?.unavailable ?? [], start, end) && start <= end
+  const reversed = Boolean(start && end && end < start)
+  const canQuote = Boolean(query.data && start && end && !blocked && !reversed)
+  const quote = useQuery({
+    queryKey: ['quote', id, start, end], enabled: canQuote, staleTime: 30_000,
+    queryFn: ({ signal }) => api<{ days: number; total_price: string }>(`vehicles/${id}/quote/?${quoteParams}`, { signal }),
+  })
   const session = useSession()
   const write = useWrite<{ id: number }>()
   const navigate = useNavigate()
@@ -110,22 +116,49 @@ function VehicleReservation({ id, params }: { id: string | undefined; params: UR
   if (query.isPending) return <Busy />
   if (query.isError) return <Notice error={query.error} />
   const vehicle = query.data
-  const blocked = overlapsUnavailableDates(vehicle.unavailable, start, end)
-  return <><Link to={`/vehicles?${params}`}>Back to results</Link>
-    <div className="detail"><section className="vehicle-intro"><div className="page-heading"><h1>{vehicle.name}</h1><p>{vehicle.location ?? 'Location on request'}</p></div><Photo vehicle={vehicle} /></section>
-    <section className="panel reservation"><h2>{money(vehicle.price_per_day)} <small>/ day</small></h2>
+  const ready = canQuote && Boolean(quote.data) && !quote.isError
+  const alternativeDates = new URLSearchParams(quoteParams)
+  alternativeDates.set('type', vehicle.vehicle_type)
+  const bookingLabel = write.isPending ? 'Sending request…'
+    : blocked ? 'Dates unavailable'
+    : !start || !end ? 'Choose rental dates'
+    : reversed ? 'Check return date'
+    : quote.isError ? 'Quote unavailable'
+    : !ready ? 'Getting quote…'
+    : 'Request booking'
+  return <><Breadcrumb to={params.size ? `/vehicles?${params}` : "/vehicles"} parent="Browse vehicles" current={vehicle.name} />
+    <div className="detail"><section className="vehicle-intro">
+      <div className="listing-host">
+        <span className="listing-host-avatar" aria-hidden="true">{vehicle.host_name?.[0]?.toUpperCase() ?? '–'}</span>
+        <div><span>Listed by</span><strong>{vehicle.host_name || 'Owner name unavailable'}</strong></div>
+      </div>
+      <div className="page-heading"><h1>{vehicle.name}</h1><p className="vehicle-location"><span className="location-pin" aria-hidden="true" />{vehicle.location ?? 'Location on request'}</p></div>
+      <Photo vehicle={vehicle} /></section>
+    <section className="panel reservation"><h2><Price value={vehicle.price_per_day} label="/ day" /></h2>
       <p>Pickup and return dates are included. The owner has up to 24 hours to respond.</p>
       <form className="fields" onSubmit={event => {
         const fields = formData(event)
-        if (!session.data?.user || blocked || !quote.data || write.isPending) return
+        if (!session.data?.user || !ready || write.isPending) return
         write.mutate({
           path: 'bookings/', body: { vehicle_id: vehicle.id, ...Object.fromEntries(fields) },
         }, { onSuccess: booking => navigate(`/bookings/${booking.id}`) })
       }}>
         <label>Pickup date<input name="start_date" type="date" value={start} onInput={event => setStart(event.currentTarget.value)} required /></label>
         <label>Return date<input name="end_date" type="date" value={end} onInput={event => setEnd(event.currentTarget.value)} required /></label>
-        <div aria-live="polite">{quote.isFetching && <Busy />}{quote.data && <div className="quote"><p>{blocked ? 'Dates unavailable' : 'Dates currently open'} · {quote.data.days} {quote.data.days === 1 ? 'rental day' : 'rental days'}</p><strong>Estimated total {money(quote.data.total_price)}</strong></div>}</div>
-        <Notice error={quote.error} /><Notice error={write.error} />{session.data?.user ? <button disabled={write.isPending || quote.isFetching || !quote.data || blocked}>{write.isPending ? 'Sending request…' : 'Request booking'}</button> : <Link className="button" to={`/sign-in?next=${encodeURIComponent(location.pathname + '?' + quoteParams)}`}>Sign in to request</Link>}
+        <div aria-live="polite">
+          {blocked && <div className="quote quote-unavailable"><strong className="availability-label">Unavailable for these dates</strong><p>Choose different dates or browse other vehicles.</p>
+            <Link to={`/vehicles?${alternativeDates}`}>Find another vehicle for these dates</Link></div>}
+          {reversed && <p>Choose a return date on or after pickup.</p>}
+          {ready && quote.data && <>
+            <div className="quote quote-available"><strong className="availability-label">Available for these dates</strong></div>
+            <PriceBreakdown rate={vehicle.price_per_day} days={quote.data.days} total={quote.data.total_price} estimate />
+          </>}
+        </div>
+        {canQuote && quote.isError && <><Notice error={quote.error} />
+          <button className="secondary" type="button" disabled={quote.isFetching} onClick={() => void quote.refetch()}>Retry quote</button></>}
+        <Notice error={write.error ?? session.error} />
+        {session.data?.user ? <button disabled={write.isPending || !ready}>{bookingLabel}</button>
+          : session.data && !blocked && <Link className="button" to={`/sign-in?next=${encodeURIComponent(location.pathname + '?' + quoteParams)}`}>Sign in to request</Link>}
       </form>
     </section>
     <section className="vehicle-information"><div className="vehicle-specs"><h2>Vehicle information</h2>

@@ -15,6 +15,7 @@ export interface Vehicle {
 export interface DateRange { start_date: string; end_date: string }
 export interface Review { id: number; rating: number; comment: string }
 export interface VehicleDetail extends Vehicle {
+  host_name: string | null
   unavailable: DateRange[]
   reviews: Review[]
 }

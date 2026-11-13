@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { Link, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { Busy, Notice } from './shared'
@@ -22,6 +23,15 @@ const customerLinks = [
 
 export function Layout({ children }: { children: ReactNode }) {
   const { data } = useSession()
+  const accountMenu = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    function dismissAccountMenu(event: PointerEvent) {
+      const menu = accountMenu.current
+      if (menu?.open && !event.composedPath().includes(menu)) menu.open = false
+    }
+    document.addEventListener('pointerdown', dismissAccountMenu, true)
+    return () => document.removeEventListener('pointerdown', dismissAccountMenu, true)
+  }, [])
   const { pathname, key } = useLocation()
   const owner = pathname.startsWith('/owner')
   const workspace = owner || ['/dashboard', '/bookings', '/account'].some(path => pathname.startsWith(path))
@@ -33,7 +43,12 @@ export function Layout({ children }: { children: ReactNode }) {
         <NavLink end to="/">Discover</NavLink><Link to="/vehicles?type=Car">Browse cars</Link><Link to="/vehicles?type=Bike">Browse bikes</Link>
       </div>
       <div className="actions"><Link className="host-link" to="/owner/fleet?edit=new">List your vehicle</Link>
-        {data?.user ? <details className="account-menu"><summary>Account</summary><div className="menu">
+        {data?.user ? <details key={key} ref={accountMenu} className="account-menu" onKeyDown={event => {
+          if (event.key === 'Escape' && event.currentTarget.open) {
+            event.currentTarget.open = false
+            event.currentTarget.querySelector('summary')?.focus()
+          }
+        }}><summary>Account <span aria-hidden="true" /></summary><div className="menu">
           <Link to="/dashboard">Renter dashboard</Link><Link to="/owner">Owner workspace</Link><Link to="/account">Settings</Link>
           <form method="post" action="/accounts/logout/">
             <input type="hidden" name="csrfmiddlewaretoken" value={data.csrf_token} />
@@ -51,8 +66,15 @@ export function Layout({ children }: { children: ReactNode }) {
       </aside>}
       <div className="page-content"><RouteErrorBoundary key={key}>{children}</RouteErrorBoundary></div>
     </main>
-    <footer><div className="wrap footer-grid"><div><Link className="brand" to="/">Motorlane</Link><p>Local car and bike rentals.</p></div>
-      <nav aria-label="Footer navigation"><Link to="/vehicles">All vehicles</Link><Link to="/vehicles?type=Car">Cars</Link><Link to="/vehicles?type=Bike">Bikes</Link><Link to="/owner">Owner workspace</Link></nav>
-    </div></footer>
+    {workspace && data?.user ? <footer className="workspace-footer"><div className="wrap">
+      <Link to="/">Motorlane</Link><a href="#main">Back to top ↑</a>
+    </div></footer> : <footer className="marketplace-footer"><div className="wrap footer-grid">
+      <div><Link className="brand" to="/"><span className="brand-mark" aria-hidden="true">M</span> Motorlane</Link>
+        <p>Local car and bike rentals.</p></div>
+      <nav aria-label="Explore rentals"><strong>Explore rentals</strong><Link to="/vehicles">All vehicles</Link>
+        <Link to="/vehicles?type=Car">Browse cars</Link><Link to="/vehicles?type=Bike">Browse bikes</Link></nav>
+      <nav aria-label="Vehicle owners"><strong>Vehicle owners</strong><Link to="/owner/fleet?edit=new">List your vehicle</Link>
+        <Link to="/owner">Owner workspace</Link></nav>
+    </div></footer>}
   </>
 }

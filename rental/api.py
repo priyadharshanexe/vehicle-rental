@@ -119,12 +119,14 @@ class VehicleDetail(generics.RetrieveAPIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [AllowAny]
     serializer_class = VehicleSerializer
-    queryset = VehicleList.queryset
+    queryset = VehicleList.queryset.select_related("owner")
 
     def retrieve(self, request, *args, **kwargs):
         vehicle = self.get_object()
+        host_name = vehicle.owner.name.strip() if vehicle.owner else ""
         return Response({
             **self.get_serializer(vehicle).data,
+            "host_name": host_name if "@" not in host_name else "",
             "unavailable": [
                 *active_bookings().filter(vehicle=vehicle).values("start_date", "end_date"),
                 *vehicle.maintenance_blocks.values("start_date", "end_date"),

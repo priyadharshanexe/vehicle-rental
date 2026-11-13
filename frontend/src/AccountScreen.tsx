@@ -1,5 +1,6 @@
+import { Breadcrumb } from './Breadcrumb'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { api, authRequest } from './api'
 import type { Session } from './api'
 import { AuthFrame, Password } from './Auth'
@@ -35,6 +36,7 @@ export default function AccountScreen({ screen }: { screen: Screen }) {
   const needsPassword = screen === 'signup' || screen === 'reset' || screen === 'account'
   const next = params.get('next')
   const content = <>
+     {screen !== 'account' && <Breadcrumb to={next ? `/sign-in?next=${encodeURIComponent(next)}` : '/sign-in'} parent="Sign in" current={page.title} />}
     <h1>{page.title}</h1>
     {screen === 'account' && <><p>Signed in as <strong>{session.data?.user?.name}</strong></p>
       <div className="quick-links"><a href="/accounts/email/">Manage email addresses →</a><a href="/accounts/3rdparty/">Connected accounts →</a></div><h2>Change password</h2></>}
@@ -55,7 +57,7 @@ export default function AccountScreen({ screen }: { screen: Screen }) {
       {write.error && <p className="error" role="alert">{write.error.message}</p>}
       <button disabled={!session.data || write.isPending}>{write.isPending ? 'Submitting…' : page.button}</button>
     </form>}
-    {screen !== 'account' && <p><Link to={next ? `/sign-in?next=${encodeURIComponent(next)}` : '/sign-in'}>Back to sign in</Link></p>}
+
   </>
   return screen === 'account' ? <section className="panel account-settings">{content}</section> : <AuthFrame>{content}</AuthFrame>
 }

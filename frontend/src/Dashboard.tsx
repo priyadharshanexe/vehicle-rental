@@ -1,6 +1,7 @@
+import { Price } from './Pricing'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api, dateLabel, money } from './api'
+import { api, dateLabel } from './api'
 import type { Booking, BookingValue, FleetVehicle } from './api'
 import { Busy, Notice, Photo, Status } from './shared'
 import { useSession } from './requests'
@@ -22,18 +23,18 @@ export function Dashboard({ owner = false }: { owner?: boolean }) {
   const next = active[0] ?? upcoming[0]
   const recent = [...rows].sort((a, b) => b.id - a.id).slice(0, 4)
   const listings = fleet.data?.filter(row => !row.archived_at)
-  const metrics = owner ? [
+  const metrics: [string, string | number | React.JSX.Element | undefined][] = owner ? [
     ['Fleet listings', listings?.length], ['Published', listings?.filter(row => row.is_available).length],
     ['Pending requests', bookings.data && pending.length], ['Active rentals', bookings.data && active.length],
     ['Overdue returns', bookings.data && active.filter(row => row.overdue).length],
-    ['Completed booking value', values.data && money(values.data.reduce((sum, row) => sum + Number(row.value), 0))],
+    ['Completed booking value', values.data && <Price key="completed-value" value={values.data.reduce((sum, row) => sum + Number(row.value), 0)} />],
   ] : [['Upcoming', bookings.data && upcoming.length], ['Active rentals', bookings.data && active.length], ['Completed', bookings.data && returned.length]]
   return <>
     <div className="page-heading section-head"><div><h1>{owner ? 'Fleet overview' : `Welcome, ${session.data?.user?.name ?? 'renter'}`}</h1>
       <p>{owner ? 'Review your listings, requests, and upcoming handoffs.' : 'See what’s coming up and manage your rentals.'}</p></div>
       <Link className="button" to={owner ? '/owner/fleet?edit=new' : '/vehicles'}>{owner ? 'List a vehicle' : 'Browse vehicles'}</Link>
     </div>
-    <div className="metrics dashboard-metrics">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value ?? '—'}</strong></div>)}</div>
+    <div className="metrics dashboard-metrics">{metrics.map(([label, value]) => <div key={label}><span>{label}</span>{typeof value === 'object' ? value : <strong>{value ?? '—'}</strong>}</div>)}</div>
     {bookings.isPending && <Busy />}<Notice error={bookings.error ?? fleet.error ?? values.error} />
     <div className="dashboard-grid">
       <section className="panel"><div className="section-head"><h2>{owner ? 'Recent requests' : 'Recent bookings'}</h2>

@@ -1,7 +1,9 @@
+import { Breadcrumb } from './Breadcrumb'
+import { Price, PriceBreakdown } from './Pricing'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api, dateLabel, money } from './api'
+import { api, dateLabel } from './api'
 import type { Booking } from './api'
 import { Busy, Notice, Photo, Status } from './shared'
 import { formData, useWrite } from './requests'
@@ -32,20 +34,31 @@ export function Bookings({ owner = false }: { owner?: boolean }) {
   const queues = owner ? ownerQueues : customerQueues
   const statuses = Object.entries(queues).find(([label]) => label === queue)?.[1] ?? []
   const rows = query.data?.filter(row => (!id || String(row.id) === id) && (!statuses.length || statuses.includes(row.status)))
-  return <><div className="page-heading"><h1>{owner ? 'Rental requests' : id ? `Booking #${id}` : 'My bookings'}</h1>
+  return <>{id && <Breadcrumb to="/bookings" parent="My bookings" current="Booking details" />}<div className="page-heading"><h1>{owner ? 'Rental requests' : id ? 'Booking details' : 'My bookings'}</h1>
     <p>{owner ? 'Respond to requests and record vehicle handoffs.' : id ? 'Reservation, pricing, and handoff details.' : 'Track your requests, current rentals, and past trips.'}</p></div>
-    {id && <Link to="/bookings">Back to my bookings</Link>}
     {!id && <div className="segments" role="group" aria-label="Filter bookings">{Object.entries(queues).map(([label, values]) =>
       <button className="secondary" type="button" key={label} aria-pressed={queue === label} onClick={() => setQueue(label)}>{label}
         {query.data && <span>{query.data.filter(row => !values.length || values.includes(row.status)).length}</span>}</button>)}</div>}
     {query.isPending && <Busy />}<Notice error={query.error} /><Notice error={write.error} />
     {rows?.length === 0 && <p className="empty">{id ? "Booking unavailable." : "No bookings in this view."} {!owner && !id && <Link to="/vehicles">Browse vehicles</Link>}</p>}
-    <div className="records">{rows?.map(row => <article className={id ? "record booking-detail" : "record booking-row"} key={row.id}>
-      <div className="record-identity"><Photo vehicle={row.vehicle} /><div><h2>{!owner && !id ? <Link to={`/bookings/${row.id}`}>{row.vehicle.name}</Link> : row.vehicle.name}</h2><p>{row.vehicle.vehicle_type} · {row.vehicle.location ?? 'Location on request'}</p><p>{dateLabel(row.start_date)} to {dateLabel(row.end_date)}</p>{owner && <p>Renter: {row.renter_name}</p>}</div></div>
-      <div><Status value={row.status} />{row.overdue && <strong className="overdue">Overdue return</strong>}<p>{money(row.total_price)}</p>
-        {row.picked_up_at && <p>Picked up {timestamp(row.picked_up_at)}</p>}
-        {row.returned_at && <p>Returned {timestamp(row.returned_at)}</p>}
-      </div>
+    <div className="records">{rows?.map(row => <article className={id ? "booking-detail" : "record booking-row"} key={row.id}>
+      {id ? <section className="panel booking-overview">
+        <div className="booking-vehicle"><Photo vehicle={row.vehicle} /><div>
+          <Status value={row.status} />
+          {row.overdue && <strong className="overdue">Overdue return</strong>}
+          <h2>{row.vehicle.name}</h2><p>{row.vehicle.vehicle_type} · {row.vehicle.location ?? 'Location on request'}</p>
+        </div></div>
+        <dl className="booking-dates">
+          <div><dt>Pickup date</dt><dd><time dateTime={row.start_date}>{dateLabel(row.start_date)}</time></dd></div>
+          <div><dt>Return date</dt><dd><time dateTime={row.end_date}>{dateLabel(row.end_date)}</time></dd></div>
+        </dl>
+      </section> : <>
+        <div className="record-identity"><Photo vehicle={row.vehicle} /><div><h2>{owner ? row.vehicle.name : <Link to={`/bookings/${row.id}`}>{row.vehicle.name}</Link>}</h2><p>{row.vehicle.vehicle_type} · {row.vehicle.location ?? 'Location on request'}</p><p>{dateLabel(row.start_date)} to {dateLabel(row.end_date)}</p>{owner && <p>Renter: {row.renter_name}</p>}</div></div>
+        <div><Status value={row.status} />{row.overdue && <strong className="overdue">Overdue return</strong>}<p><Price value={row.total_price} label="Booking total" /></p>
+          {row.picked_up_at && <p>Picked up {timestamp(row.picked_up_at)}</p>}
+          {row.returned_at && <p>Returned {timestamp(row.returned_at)}</p>}
+        </div>
+      </>}
       <div className="actions">
         {owner ? ownerActions[row.status]?.filter(([action]) => action !== 'pickup' || (today >= row.start_date && today <= row.end_date)).map(([action, label]) => <button key={action} disabled={write.isPending} onClick={() => write.mutate({ path: `bookings/${row.id}/${action}/` })}>{label}</button>) : <>
           {!id && <Link to={`/bookings/${row.id}`}>View booking</Link>}<a href={`/download-receipt/${row.id}/`}>Booking summary</a>
@@ -53,10 +66,8 @@ export function Bookings({ owner = false }: { owner?: boolean }) {
           {row.status === 'Returned' && !row.reviewed && <button className="secondary" onClick={() => setReview(row.id)}>Leave a review</button>}
         </>}
       </div>
-      {id && <section className="price-detail"><h3>Price breakdown</h3><dl>
-        {row.quoted_daily_rate && <div><dt>Booked daily rate</dt><dd>{money(row.quoted_daily_rate)}</dd></div>}
-        <div><dt>Rental days</dt><dd>{(Date.parse(row.end_date) - Date.parse(row.start_date)) / 86400000 + 1}</dd></div>
-        <div><dt>Booking total</dt><dd>{money(row.total_price)}</dd></div></dl></section>}
+      {id && <PriceBreakdown rate={row.quoted_daily_rate}
+        days={(Date.parse(row.end_date) - Date.parse(row.start_date)) / 86400000 + 1} total={row.total_price} />}
       {id && <BookingTimeline row={row} />}
       {review === row.id && <form className="fields" onSubmit={event => write.mutate({
         path: `bookings/${row.id}/review/`, body: formData(event),
@@ -81,9 +92,9 @@ function BookingTimeline({ row }: { row: Booking }) {
   if (!events.some(event => event.at && event.at === row.status_changed_at)) {
     events.push({ label: row.status, at: row.status_changed_at })
   }
-  return <section className="timeline"><h3>Booking timeline</h3><ol>
+  return <section className="panel booking-timeline"><h3>Booking timeline</h3><ol>
     {events.filter(event => event.at || event.label === row.status).map(event => <li key={event.label}>
-      {event.label}{event.at && <> · <time dateTime={event.at}>{timestamp(event.at)}</time></>}
+      <strong>{event.label}</strong>{event.at && <time dateTime={event.at}>{timestamp(event.at)}</time>}
     </li>)}
   </ol></section>
 }

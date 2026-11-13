@@ -1,7 +1,9 @@
+import { Breadcrumb } from './Breadcrumb'
+import { Price } from './Pricing'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { api, dateLabel, money, queryString } from './api'
+import { api, dateLabel, queryString } from './api'
 import type { BookingValue, FleetVehicle, Maintenance } from './api'
 import { Busy, Notice, Photo, Status } from './shared'
 import { formData, useWrite } from './requests'
@@ -51,7 +53,7 @@ export function Fleet() {
     {query.data?.length === 0 && <p className="empty">Your vehicles will appear here after you create a listing.</p>}
     <div className="records">{query.data?.map(item => <article className="record" key={item.id}>
       <div className="record-identity"><Photo vehicle={item} /><div><h2>{item.name}</h2><p>{item.vehicle_type} · {item.location ?? 'Location on request'}</p></div></div>
-      <div><Status value={item.archived_at ? 'Archived' : item.is_available ? 'Published' : 'Unpublished'} /><p>{money(item.price_per_day)} / day</p></div>
+      <div><Status value={item.archived_at ? 'Archived' : item.is_available ? 'Published' : 'Unpublished'} /><p><Price value={item.price_per_day} label="/ day" /></p></div>
       {!item.archived_at && <div className="actions">
         <button className="secondary" onClick={() => changeEditor(item)}>Edit</button>
         <Link to={`/owner/fleet/${item.id}/maintenance`}>Maintenance</Link>
@@ -76,7 +78,7 @@ export function MaintenancePage() {
   const path = `owner/fleet/${id}/maintenance/`
   const query = useQuery({ queryKey: ['maintenance', id], queryFn: () => api<Maintenance[]>(path) })
   const write = useWrite()
-  return <><Link to="/owner/maintenance">All maintenance schedules</Link><div className="page-heading"><h1>{vehicle ? vehicle.name : 'Vehicle maintenance'}</h1><p>Block dates when this vehicle is unavailable to renters.</p></div><div className="dashboard-grid maintenance-grid">
+  return <><Breadcrumb to="/owner/maintenance" parent="Maintenance" current={vehicle?.name ?? "Vehicle schedule"} /><div className="page-heading"><h1>{vehicle ? vehicle.name : 'Vehicle maintenance'}</h1><p>Block dates when this vehicle is unavailable to renters.</p></div><div className="dashboard-grid maintenance-grid">
     <section className="panel"><h2>Schedule maintenance</h2><form className="fields" onSubmit={event => {
       const form = event.currentTarget
       write.mutate({ path, body: formData(event) }, { onSuccess: () => form.reset() })
@@ -104,9 +106,9 @@ export function Values() {
       <label>To<input type="date" name="end_date" defaultValue={params.get('end_date') ?? ''} /></label><button>Filter</button>
     </form>
     {query.isPending && <Busy />}<Notice error={query.error} />
-    {query.data && <><div className="metrics"><div><span>Total booking value</span><strong>{money(query.data.reduce((total, row) => total + Number(row.value), 0))}</strong></div><div><span>Completed bookings</span><strong>{query.data.reduce((total, row) => total + row.bookings, 0)}</strong></div></div>
+    {query.data && <><div className="metrics"><div><span>Total booking value</span><Price value={query.data.reduce((total, row) => total + Number(row.value), 0)} /></div><div><span>Completed bookings</span><strong>{query.data.reduce((total, row) => total + row.bookings, 0)}</strong></div></div>
       {query.data.length === 0 ? <p className="empty">No completed bookings for this period.</p> : <div className="records">
-        {query.data.map(row => <article className="record" key={row.vehicle_id}><h2>{row.vehicle__name}</h2><p>{row.bookings} completed</p><p>{money(row.value)}</p></article>)}
+        {query.data.map(row => <article className="record" key={row.vehicle_id}><h2>{row.vehicle__name}</h2><p>{row.bookings} completed</p><p><Price value={row.value} label="Completed booking value" /></p></article>)}
       </div>}
     </>}
   </>

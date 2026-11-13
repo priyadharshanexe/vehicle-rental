@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, authRequest } from './api'
 import type { Session } from './api'
+import { AuthFrame, Password } from './Auth'
+import { Busy, Notice } from './shared'
 
 type Screen = 'signup' | 'request-reset' | 'reset' | 'verify' | 'account'
 
@@ -32,9 +34,13 @@ export default function AccountScreen({ screen }: { screen: Screen }) {
   const needsEmail = screen === 'signup' || screen === 'request-reset'
   const needsPassword = screen === 'signup' || screen === 'reset' || screen === 'account'
   const next = params.get('next')
-  return <section className="panel narrow">
+  const content = <>
     <h1>{page.title}</h1>
-    {screen === 'account' && <><p>{session.data?.user?.name}</p><p><a href="/accounts/email/">Manage email addresses</a> · <a href="/accounts/3rdparty/">Connected accounts</a></p><h2>Change password</h2></>}
+    {screen === 'account' && <><p>Signed in as <strong>{session.data?.user?.name}</strong></p>
+      <div className="quick-links"><a href="/accounts/email/">Manage email addresses →</a><a href="/accounts/3rdparty/">Connected accounts →</a></div><h2>Change password</h2></>}
+    {screen === 'verify' && <p>Confirm the email address associated with your Motorlane account.</p>}
+    {screen === 'request-reset' && <p>Enter your account email to request a password reset link.</p>}
+    {session.isPending && <Busy />}<Notice error={session.error} />
     {write.isSuccess ? <p role="status">{page.done}</p> : <form className="fields" onSubmit={event => {
       event.preventDefault()
       const fields = new FormData(event.currentTarget)
@@ -44,11 +50,12 @@ export default function AccountScreen({ screen }: { screen: Screen }) {
       write.mutate(data)
     }}>
       {needsEmail && <label>Email<input type="email" name="email" autoComplete="email" required /></label>}
-      {screen === 'account' && <label>Current password<input type="password" name="current_password" autoComplete="current-password" /></label>}
-      {needsPassword && <label>New password<input type="password" name={screen === 'account' ? 'new_password' : 'password'} autoComplete="new-password" required /></label>}
+      {screen === 'account' && <Password label="Current password" name="current_password" autoComplete="current-password" required={false} />}
+      {needsPassword && <Password label="New password" name={screen === 'account' ? 'new_password' : 'password'} autoComplete="new-password" />}
       {write.error && <p className="error" role="alert">{write.error.message}</p>}
-      <button disabled={!session.data || write.isPending}>{page.button}</button>
+      <button disabled={!session.data || write.isPending}>{write.isPending ? 'Submitting…' : page.button}</button>
     </form>}
     {screen !== 'account' && <p><Link to={next ? `/sign-in?next=${encodeURIComponent(next)}` : '/sign-in'}>Back to sign in</Link></p>}
-  </section>
+  </>
+  return screen === 'account' ? <section className="panel account-settings">{content}</section> : <AuthFrame>{content}</AuthFrame>
 }

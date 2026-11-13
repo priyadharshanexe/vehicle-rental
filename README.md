@@ -96,9 +96,15 @@ with `DJANGO_DEBUG=1`, then run `python manage.py seed_demo`. For Docker, use
 with the password exported in your shell.
 
 The demo creates `renter@rental-demo.example`, `owner@rental-demo.example`,
-and two listings in Madurai. Sign in as the renter and request a vehicle for
-today. Sign in as the owner to approve it and record pickup and return.
-Return to the renter account to download the summary and leave a review.
+plus three additional demo owners (`host`, `operator`, and `partner` at
+`rental-demo.example`). They share ten car and bike listings across Tamil Nadu.
+The renter has upcoming, active, and historical bookings. Sign in as the owner
+to see a pending request, scheduled handoffs, maintenance, and completed booking
+value. The primary owner has room to create one more listing.
+
+Use a disposable local database for a fresh demo. Rerunning the command
+preserves existing records and passwords. Booking dates and request expiration
+continue to advance normally after seeding.
 
 Run `python manage.py test`, `npm --prefix frontend test`,
 `npm --prefix frontend run lint`, and `npm --prefix frontend run build`.

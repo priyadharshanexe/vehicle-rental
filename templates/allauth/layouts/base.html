@@ -1,15 +1,16 @@
 {% extends "rental/base.html" %}
-{% block title %}{% block head_title %}Account{% endblock %} · Vehicle Rental{% endblock %}
+{% block title %}{% block head_title %}Account{% endblock %} · Motorlane{% endblock %}
 {% block main %}
-<section class="form-panel">
+<div{% if request.user.is_authenticated %} class="account-layout"{% endif %}>
   {% if request.user.is_authenticated %}
-  <nav class="d-flex flex-wrap gap-3 mb-3" aria-label="Account settings">
-    <a href="{% url 'account_email' %}">Email</a>
+  <nav class="form-panel" aria-label="Account settings">
+    <a href="/app/account">Account overview</a>
+    <a href="{% url 'account_email' %}">Email addresses</a>
     <a href="{% url 'account_change_password' %}">Password</a>
     <a href="{% url 'socialaccount_connections' %}">Connected accounts</a>
   </nav>
   {% endif %}
-  {% block body %}{% block content %}{% endblock %}{% endblock %}
-</section>
+  <section class="form-panel">{% block body %}{% block content %}{% endblock %}{% endblock %}</section>
+</div>
 {% block extra_body %}{% endblock %}
 {% endblock %}

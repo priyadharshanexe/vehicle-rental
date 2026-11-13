@@ -313,3 +313,21 @@ dialog::backdrop { background: #14213b66; }
   .record:not(.maintenance-grid .record) { grid-template-columns: minmax(0, 1fr); }
   .catalog .cards { grid-template-columns: minmax(0, 1fr); }
 }
+
+[data-vehicle-type="Car"] { --category-surface: #e0f3ee; --category-ink: #125749; }
+[data-vehicle-type="Bike"] { --category-surface: #fff0d6; --category-ink: #784216; }
+.featured-category { padding: .85rem; border-radius: .7rem; background: var(--category-surface); }
+.featured-category .category-head { color: var(--category-ink); }
+.featured-grid .cards { gap: .75rem; }
+.listing-photo > span { background: var(--category-surface); color: var(--category-ink); font-weight: 650; }
+.hero .filters { background: #eff5ff; }
+.how { background: #e8f3f1; border-color: #c6dfd9; }
+.how li::marker { color: #125749; }
+.owner-callout { background: #e1eaff; border-color: #c6d5fb; }
+.workspace-nav { background: #eef3ff; }
+.workspace-nav a[aria-current] { background: #dce7ff; }
+.price-breakdown .price-total { background: #e2eaff; }
+@media (max-width: 420px) {
+  .featured-category { padding: .65rem; }
+  .featured-grid .listing-body { padding: .7rem; }
+}

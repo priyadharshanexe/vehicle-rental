@@ -38,7 +38,7 @@ export function Home() {
       {(cars.isPending || bikes.isPending) && <Busy />}<Notice error={cars.error ?? bikes.error} />
       <div className="featured-grid">
         {[{ title: 'Cars', type: 'Car', result: cars.data }, { title: 'Bikes', type: 'Bike', result: bikes.data }].map(group =>
-          <section key={group.type}><h3 className="category-head">{group.title}</h3>
+          <section className="featured-category" data-vehicle-type={group.type} key={group.type}><h3 className="category-head">{group.title}</h3>
             {group.result?.results.length === 0 && <p className="empty">No published listings in this category yet.</p>}
             <div className="cards">{featuredListings(group.result?.results ?? []).map(vehicle => <Listing key={vehicle.id} vehicle={vehicle} />)}</div>
           </section>)}
@@ -59,7 +59,7 @@ type CatalogResult = { count: number; next: string | null; previous: string | nu
 function Listing({ vehicle, params = '' }: { vehicle: Vehicle; params?: string }) {
   const url = `/vehicles/${vehicle.id}${params ? `?${params}` : ''}`
   const dates = new URLSearchParams(params)
-  return <article className="listing">
+  return <article className="listing" data-vehicle-type={vehicle.vehicle_type}>
     <Link to={url} className="listing-card-link" aria-label={`View details for ${vehicle.name}`}>
       <div className="listing-photo"><Photo vehicle={vehicle} /><span>{vehicle.vehicle_type}</span></div>
       <div className="listing-body"><h3>{vehicle.name}</h3><p>{vehicle.location ?? 'Location on request'} · {vehicle.fuel_type}</p>

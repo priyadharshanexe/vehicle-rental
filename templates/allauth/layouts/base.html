@@ -4,10 +4,10 @@
 <div{% if request.user.is_authenticated %} class="account-layout"{% endif %}>
   {% if request.user.is_authenticated %}
   <nav class="form-panel" aria-label="Account settings">
-    <a href="/app/account">Account overview</a>
-    <a href="{% url 'account_email' %}">Email addresses</a>
+    <span class="settings-kicker">YOUR ACCOUNT</span><a href="/app/account">Account overview</a>
+    <a {% if request.resolver_match.url_name == "account_email" %}aria-current="page"{% endif %} href="{% url 'account_email' %}">Email addresses</a>
     <a href="{% url 'account_change_password' %}">Password</a>
-    <a href="{% url 'socialaccount_connections' %}">Connected accounts</a>
+    <a {% if request.resolver_match.url_name == "socialaccount_connections" %}aria-current="page"{% endif %} href="{% url 'socialaccount_connections' %}">Connected accounts</a>
   </nav>
   {% endif %}
   <section class="form-panel">{% block body %}{% block content %}{% endblock %}{% endblock %}</section>

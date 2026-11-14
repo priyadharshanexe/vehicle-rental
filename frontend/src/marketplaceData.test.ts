@@ -3,6 +3,7 @@ import type { Vehicle } from './api'
 import { featuredListings, overlapsUnavailableDates } from './marketplaceData'
 
 const vehicle: Vehicle = {
+  description: '', transmission: '', seats: null, model_year: null, pickup_instructions: '', rating: null, review_count: 0,
   id: 1, name: 'Hyundai i20', vehicle_type: 'Car', fuel_type: 'Petrol',
   location: 'Madurai', price_per_day: '1800.00', vehicle_image: null,
 }

@@ -6,6 +6,13 @@ export interface Session {
 export interface Vehicle {
   id: number
   name: string
+  description: string
+  transmission: string
+  seats: number | null
+  model_year: number | null
+  pickup_instructions: string
+  rating: number | null
+  review_count: number
   vehicle_type: 'Car' | 'Bike'
   fuel_type: string
   location: string | null
@@ -27,6 +34,9 @@ export interface Booking extends DateRange {
   status: BookingStatus
   total_price: string
   quoted_daily_rate: string | null
+  contact_name: string
+  contact_phone: string
+  pickup_notes: string
   renter_name: string
   picked_up_at: string | null
   returned_at: string | null

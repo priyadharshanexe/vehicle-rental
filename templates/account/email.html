@@ -1,0 +1,19 @@
+{% extends "account/base_manage_email.html" %}
+{% load static %}
+{% block head_title %}Email addresses{% endblock %}
+{% block content %}
+<div class="settings-title"><span class="settings-icon" aria-hidden="true">@</span><div><span class="settings-kicker">ACCOUNT & SECURITY</span><h1>Email addresses</h1><p>Manage where you receive booking updates and account notifications.</p></div></div>
+{{ form.non_field_errors }}
+{% if emailaddresses %}
+<form method="post" action="{% url 'account_email' %}" class="email-list" data-tags="email,list">
+{% csrf_token %}
+<div class="settings-section-heading"><h2>Your email addresses</h2><span>Select an address to manage it</span></div>
+{% for radio in emailaddress_radios %}{% with emailaddress=radio.emailaddress %}
+<label class="identity-card" for="{{ radio.id }}"><input type="radio" name="email" value="{{ emailaddress.email }}" id="{{ radio.id }}" {% if radio.checked %}checked{% endif %}><span class="identity-symbol" aria-hidden="true">@</span><span class="identity-copy"><strong>{{ emailaddress.email }}</strong><span class="identity-badges">{% if emailaddress.verified %}<span class="verified-badge">Verified</span>{% else %}<span class="pending-badge">Verification needed</span>{% endif %}{% if emailaddress.primary %}<span class="primary-badge">Primary address</span>{% endif %}</span></span></label>
+{% endwith %}{% endfor %}
+<div class="settings-actions"><button type="submit" name="action_primary">Set as primary</button><button class="quiet-action" type="submit" name="action_send">Resend verification</button><button class="danger-action" type="submit" name="action_remove">Remove address</button></div>
+</form>
+{% else %}<div class="settings-empty">No email addresses yet. Add one below to receive account updates.</div>{% endif %}
+{% if can_add_email %}<section class="settings-add"><div><span class="settings-kicker">KEEP IN TOUCH</span><h2>Add another email</h2><p>We’ll send a verification link to confirm it belongs to you.</p></div><form method="post" action="{% url 'account_email' %}" class="add-email-form">{% csrf_token %}<label for="id_email">Email address<input type="email" name="email" id="id_email" placeholder="you@example.com" autocomplete="email" required value="{{ form.email.value|default_if_none:'' }}">{{ form.email.errors }}</label><button type="submit" name="action_add">Add email <span aria-hidden="true">↗</span></button></form></section>{% endif %}
+{% endblock %}
+{% block extra_body %}<script>document.querySelector('[name="action_remove"]')?.addEventListener('click',function(event){if(!window.confirm('Remove the selected email address?'))event.preventDefault()});</script>{% endblock %}

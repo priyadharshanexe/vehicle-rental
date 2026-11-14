@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Avg, Count, Q
 from django.http import Http404
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -15,7 +16,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Booking, Feedback, Vehicle
+from .models import Booking, Feedback, Vehicle, Favorite
 from .views import (
     BookingDatesForm, FeedbackForm, MaintenanceForm, ReportDatesForm, VehicleForm,
     active_bookings, archive_listing, completed_booking_values, create_listing,
@@ -24,9 +25,37 @@ from .views import (
 
 
 class VehicleSerializer(serializers.ModelSerializer):
+    rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
+
+    def get_rating(self, vehicle):
+        return self._reviews(vehicle)["average"]
+
+    def get_review_count(self, vehicle):
+        return self._reviews(vehicle)["count"]
+
+    def _reviews(self, vehicle):
+        if hasattr(vehicle, "review_average"):
+            return {"average": vehicle.review_average, "count": vehicle.review_total}
+        if not hasattr(vehicle, "_review_summary"):
+            vehicle._review_summary = Feedback.objects.filter(vehicle=vehicle, booking__isnull=False).aggregate(average=Avg("rating"), count=Count("id"))
+        return vehicle._review_summary
+
     class Meta:
         model = Vehicle
-        fields = ("id", "name", "vehicle_type", "fuel_type", "location", "price_per_day", "vehicle_image")
+        fields = ("id", "name", "vehicle_type", "fuel_type", "location", "price_per_day", "vehicle_image", "description", "transmission", "seats", "model_year", "pickup_instructions", "rating", "review_count")
+
+
+class CheckoutContactSerializer(serializers.Serializer):
+    contact_name = serializers.CharField(max_length=100)
+    contact_phone = serializers.RegexField(r"^\+?[0-9 ()-]{7,30}$")
+    pickup_notes = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+    accepted_conditions = serializers.BooleanField()
+
+    def validate_accepted_conditions(self, value):
+        if not value:
+            raise serializers.ValidationError("Review and accept the rental conditions before requesting.")
+        return value
 
 
 class BookingSerializer(serializers.ModelSerializer):
@@ -45,7 +74,7 @@ class BookingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = ("id", "vehicle", "start_date", "end_date", "status", "total_price", "quoted_daily_rate",
-                  "renter_name", "picked_up_at", "returned_at", "reviewed", "overdue", "status_changed_at")
+                  "renter_name", "contact_name", "contact_phone", "pickup_notes", "picked_up_at", "returned_at", "reviewed", "overdue", "status_changed_at")
 
 
 @never_cache
@@ -77,7 +106,7 @@ class VehicleList(generics.ListAPIView):
         vehicles, _, dates = search_vehicles(request.query_params)
         if dates.is_bound and not dates.is_valid():
             return Response(dates.errors, status=400)
-        rows = self.paginate_queryset(vehicles.order_by("name", "pk"))
+        rows = self.paginate_queryset(vehicles.annotate(review_average=Avg("feedback__rating", filter=Q(feedback__booking__isnull=False)), review_total=Count("feedback", filter=Q(feedback__booking__isnull=False))).order_by("name", "pk"))
         return self.get_paginated_response(self.get_serializer(rows, many=True).data)
 
 
@@ -92,6 +121,11 @@ def bookings(request):
         return Response(BookingSerializer(rows, many=True, context={"request": request}).data)
     if not isinstance(request.data, Mapping):
         return Response({"detail": "Expected an object."}, status=status.HTTP_400_BAD_REQUEST)
+    contact = None
+    if request.data.get("checkout"):
+        contact = CheckoutContactSerializer(data=request.data)
+        if not contact.is_valid():
+            return Response(contact.errors, status=400)
     vehicle_id = serializers.IntegerField(min_value=1)
     try:
         pk = vehicle_id.run_validation(request.data.get("vehicle_id"))
@@ -102,7 +136,12 @@ def bookings(request):
     if not dates.is_valid():
         return Response(dates.errors, status=status.HTTP_400_BAD_REQUEST)
     try:
-        booking = reserve_vehicle(profile.pk, vehicle.pk, **dates.cleaned_data)
+        with transaction.atomic():
+            booking = reserve_vehicle(profile.pk, vehicle.pk, **dates.cleaned_data)
+            if contact is not None:
+                for field in ("contact_name", "contact_phone", "pickup_notes"):
+                    setattr(booking, field, contact.validated_data.get(field, ""))
+                booking.save(update_fields=["contact_name", "contact_phone", "pickup_notes"])
     except ValidationError as error:
         return Response({"detail": error.messages[0]}, status=status.HTTP_409_CONFLICT)
     return Response(
@@ -283,3 +322,18 @@ def quote(request, pk):
     except ValidationError as error:
         return Response({"detail": error.messages[0]}, status=409)
     return Response({"days": days, "total_price": str(total)})
+
+
+@api_view(["GET", "POST", "DELETE"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def favorites(request, pk=None):
+    if request.method == "GET":
+        rows = Vehicle.objects.filter(favorite__user=request.user, archived_at__isnull=True, is_available=True)
+        return Response(VehicleSerializer(rows, many=True, context={"request": request}).data)
+    vehicle = get_object_or_404(Vehicle, pk=pk, archived_at__isnull=True, is_available=True)
+    if request.method == "DELETE":
+        Favorite.objects.filter(user=request.user, vehicle=vehicle).delete()
+        return Response(status=204)
+    Favorite.objects.get_or_create(user=request.user, vehicle=vehicle)
+    return Response({"saved": True})

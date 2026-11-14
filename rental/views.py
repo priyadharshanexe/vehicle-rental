@@ -11,7 +11,6 @@ from django import forms
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
-from reportlab.pdfgen import canvas
 from django.conf import settings
 from django.http import FileResponse, Http404, HttpResponse
 from django.contrib.admin.views.decorators import staff_member_required
@@ -171,18 +170,8 @@ def download_receipt(request, booking_id):
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = 'attachment; filename="booking-summary.pdf"'
 
-    p = canvas.Canvas(response)
-
-    p.drawString(100, 800, "Vehicle Rental Booking Summary")
-    p.drawString(100, 760, f"User: {booking.user.name}")
-    p.drawString(100, 740, f"Vehicle: {booking.vehicle.name}")
-    p.drawString(100, 720, f"Start Date: {booking.start_date}")
-    p.drawString(100, 700, f"End Date: {booking.end_date}")
-    p.drawString(100, 680, f"Total Price: INR {booking.total_price}")
-    p.drawString(100, 660, f"Status: {booking.display_status}")
-
-    p.showPage()
-    p.save()
+    from .receipts import render_booking_summary
+    render_booking_summary(response, booking)
 
     return response
 
@@ -192,7 +181,7 @@ class VehicleForm(forms.ModelForm):
 
     class Meta:
         model = Vehicle
-        fields = ("name", "vehicle_type", "fuel_type", "location", "price_per_day", "vehicle_image")
+        fields = ("name", "vehicle_type", "fuel_type", "location", "price_per_day", "vehicle_image", "description", "transmission", "seats", "model_year", "pickup_instructions")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -30,6 +30,11 @@ class Vehicle(models.Model):
     fuel_type = models.CharField(max_length=50)
     location = models.CharField(max_length=100, null=True, blank=True)
     vehicle_image = models.ImageField(upload_to='vehicles/')
+    description = models.TextField(blank=True, max_length=3000)
+    transmission = models.CharField(max_length=30, blank=True)
+    seats = models.PositiveSmallIntegerField(null=True, blank=True)
+    model_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    pickup_instructions = models.TextField(blank=True, max_length=1000)
     is_available = models.BooleanField(default=True)
     archived_at = models.DateTimeField(null=True, blank=True)
 
@@ -52,6 +57,9 @@ class Booking(models.Model):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.PROTECT)
     start_date = models.DateField()
     end_date = models.DateField()
+    contact_name = models.CharField(max_length=100, blank=True)
+    contact_phone = models.CharField(max_length=30, blank=True)
+    pickup_notes = models.CharField(max_length=1000, blank=True)
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     quoted_daily_rate = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
@@ -119,3 +127,10 @@ class Feedback(models.Model):
 
     def __str__(self):
         return f"{self.user.name} - {self.vehicle.name}"
+
+class Favorite(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "vehicle"], name="unique_saved_vehicle")]
